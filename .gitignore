@@ -1,0 +1,65 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+venv/
+.venv/
+env/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Django
+db.sqlite3
+media/
+staticfiles/
+
+# Logs
+*.log
+logs/
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# ML / AI artifacts
+checkpoints/
+runs/
+wandb/
+outputs/
+models/
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Local data
+data/
+datasets/
+uploads/
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.next/
+
+# Temporary files
+*.tmp
+*.bak
