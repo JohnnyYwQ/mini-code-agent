@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mini Code Agent</title>
+  <style>
+    :root {
+      color-scheme: light;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f6f7f9;
+      color: #1f2933;
+    }
+
+    body {
+      margin: 0;
+    }
+
+    main {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 32px 20px;
+    }
+
+    header {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    .subtitle {
+      margin: 6px 0 0;
+      color: #64748b;
+      font-size: 14px;
+    }
+
+    .messages {
+      min-height: 320px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .message {
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+      padding: 12px 14px;
+      background: #ffffff;
+    }
+
+    .message.user {
+      border-color: #b8c7dd;
+      background: #eef5ff;
+    }
+
+    .role {
+      margin-bottom: 6px;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .content {
+      white-space: pre-wrap;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+    }
+
+    .empty {
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      padding: 28px;
+      color: #64748b;
+      background: #ffffff;
+      text-align: center;
+    }
+
+    .trace {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+
+    .trace h2 {
+      margin: 0;
+      color: #475569;
+      font-size: 14px;
+    }
+
+    .trace-item {
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: #ffffff;
+    }
+
+    .trace-item.error {
+      border-color: #fecaca;
+      background: #fff7f7;
+    }
+
+    .trace-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 8px;
+      color: #334155;
+      font-size: 13px;
+    }
+
+    .trace-head span {
+      color: #64748b;
+      font-size: 12px;
+      text-transform: uppercase;
+    }
+
+    .trace-block {
+      margin-top: 8px;
+    }
+
+    .label {
+      margin-bottom: 4px;
+      color: #64748b;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    pre {
+      max-height: 180px;
+      overflow: auto;
+      margin: 0;
+      border-radius: 6px;
+      padding: 10px;
+      background: #0f172a;
+      color: #e2e8f0;
+      font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+
+    form.composer {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      border: 1px solid #d8dee8;
+      border-radius: 8px;
+      background: #ffffff;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 92px;
+      box-sizing: border-box;
+      resize: vertical;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 10px;
+      font: inherit;
+    }
+
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+
+    button {
+      border: 1px solid #1f2933;
+      border-radius: 6px;
+      padding: 8px 14px;
+      background: #1f2933;
+      color: #ffffff;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      border-color: #cbd5e1;
+      background: #ffffff;
+      color: #1f2933;
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <h1>Mini Code Agent</h1>
+        <p class="subtitle">Django chat shell backed by the mini agent runtime.</p>
+      </div>
+      <form method="post">
+        {% csrf_token %}
+        <button class="secondary" type="submit" name="clear" value="1">Clear</button>
+      </form>
+    </header>
+
+    <section class="messages" id="messages" aria-label="Conversation">
+      {% if messages %}
+        {% for message in messages %}
+          <article class="message {{ message.role }}">
+            <div class="role">{{ message.role }}</div>
+            <div class="content">{{ message.content }}</div>
+          </article>
+        {% endfor %}
+      {% else %}
+        <div class="empty">No messages yet.</div>
+      {% endif %}
+    </section>
+
+    {% if tool_trace %}
+      <section class="trace" aria-label="Tool calls">
+        <h2>Tool Trace</h2>
+        {% for call in tool_trace %}
+          <article class="trace-item {{ call.status }}">
+            <div class="trace-head">
+              <strong>{{ call.name }}</strong>
+              <span>{{ call.status }}</span>
+            </div>
+            <div class="trace-block">
+              <div class="label">input</div>
+              <pre>{{ call.input }}</pre>
+            </div>
+            <div class="trace-block">
+              <div class="label">output</div>
+              <pre>{{ call.output }}</pre>
+            </div>
+          </article>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    <form id="chat-form">
+      {% csrf_token %}
+      <textarea id="message" name="message"></textarea>
+      <button type="submit">Send</button>
+    </form>
+  </main>
+  <script>
+    
+    const form = document.querySelector("#chat-form");
+    const input = document.querySelector("#message");
+    const messages = document.querySelector("#messages");
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const text = input.value.trim();
+      if (!text) return;
+
+      appendMessage("user", text);
+      input.value = "";
+
+      const response = await fetch("/api/chat/", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-CSRFToken": getCsrfToken(),
+        },
+        body: JSON.stringify({ message: text }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        appendMessage("assistant", `Error: ${data.error}`);
+        return;
+      }
+
+      appendMessage("assistant", data.assistant || "(no response)");
+    });
+
+    function appendMessage(role, content) {
+      const article = document.createElement("article");
+      article.className = `message ${role}`;
+      article.innerHTML = `
+        <div class="role">${role}</div>
+        <div class="content"></div>
+      `;
+      article.querySelector(".content").textContent = content;
+      messages.appendChild(article);
+    }
+
+    function getCsrfToken() {
+      return document.querySelector("[name=csrfmiddlewaretoken]").value;
+    }
+  </script>
+</body>
+</html>
