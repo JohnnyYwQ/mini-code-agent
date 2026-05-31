@@ -5,7 +5,7 @@ from django.shortcuts import render
 from django.views.decorators.http import require_POST
 
 
-from core.prac_tool import agent_loop
+from core.agent import agent_loop
 
 AGENT_HISTORY = []
 

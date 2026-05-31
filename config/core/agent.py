@@ -1,3 +1,13 @@
+"""
+Agent with tools:
+    bash
+    read
+    write
+    edit
+    todo
+    subagent
+"""
+
 import os
 import subprocess
 from pathlib import Path
@@ -15,6 +25,7 @@ client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.environ["MODEL_ID"]
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks. Act, don't explain."
+SUBAGENT_SYSTEM = f"You are a coding subagent at {WORKDIR}. Complete the given task, then summarize your findings."
 
 class TodoManager:
     """
@@ -185,6 +196,46 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
     except Exception as e:
         return f"Error: {e}"
     
+def run_subagent(prompt: str) -> str:
+    """
+    run a subagent to do the task,
+
+    if task is too complex, parent agent will split it to micro
+    task, then let subagent do it, so subagent only need
+    to focus on concret task, history is not necessary.
+
+    Diff from agent:
+    - limited loops
+    - messages in subagent don't change message in agent
+    - take parent agent's prompt only append summary
+      as user messages for parent agent
+
+    """
+    submessages = [{"role": "user", "content": prompt}]
+    for _ in range(30):
+        response = client.messages.create(
+            model=MODEL,
+            system=SUBAGENT_SYSTEM,
+            tools=CHILD_TOOLS,
+            messages=submessages,
+            max_tokens=8000,
+        )
+        
+        submessages.append({"role": "assistant", "content": response.content})
+        if response.stop_reason != "tool_use":
+            break
+        
+        results = []
+
+        for block in response.content:
+            if block.type == "tool_use":
+                handler = TOOL_HANDLERS.get(block.name) 
+                output = handler(**block.input) if handler else f"Tool not found: {block.name}"
+                results.append({"type": "tool_result", "tool_use_id": block.id,
+                                "content": str(output)[:50000]})
+        submessages.append({"role": "user", "content": results})
+    return "".join(b.text for b in response.content if hasattr(b, "text")) or "(no summary)"
+
 TODO = TodoManager()
 
 TOOL_HANDLERS = {
@@ -193,10 +244,11 @@ TOOL_HANDLERS = {
     "write_file": lambda **kw: run_write(kw["path"], kw["text"]),
     "edit_file":  lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
     "todo":       lambda **kw: TODO.update(kw["items"]),
+    "task":       lambda **kw: run_subagent(kw["prompt"]),
 }
 
 
-TOOLS = [
+CHILD_TOOLS = [
     {
         "name": "bash", "description": "Run a bash command in a shell.",
         "input_schema": {"type": "object",
@@ -221,6 +273,9 @@ TOOLS = [
                          "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}},
                          "required": ["path", "old_text", "new_text"]},
     },
+]
+
+PARENT_TOOLS = CHILD_TOOLS + [
     {
         "name": "todo", "description": "update task list. Track step in multi-step tasks.",
         "input_schema": {"type": "object",
@@ -230,6 +285,12 @@ TOOLS = [
                                                             "required": ["id", "text", "state"]}}},
                          "required": ["items"]},
     },
+    {
+        "name": "task", "description": "Spawn a subagent with fresh context. It shares the filesystem but not conversation history.",
+        "input_schema": {"type": "object",
+                         "properties": {"prompt": {"type": "string"}, "description": {"type": "string", "description": "Short description of the task"}},
+                         "required": ["prompt"]}
+    }
 ]
 
 
@@ -252,7 +313,7 @@ def agent_loop(messages: list):
         response = client.messages.create(
             model=MODEL,
             system=SYSTEM,
-            tools=TOOLS,
+            tools=PARENT_TOOLS,
             messages=messages,
             max_tokens=8000,
         )
@@ -265,6 +326,10 @@ def agent_loop(messages: list):
         for block in response.content:
             if block.type == "tool_use":
                 handler = TOOL_HANDLERS.get(block.name)
+                if block.name == "task":
+                    desc = block.input.get("description", "subtask")
+                    prompt = block.input.get("prompt", "")
+                    print(f"> task({desc}): {prompt}")
                 try:
                     output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
                 except Exception as e:
