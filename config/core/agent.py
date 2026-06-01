@@ -240,7 +240,7 @@ TODO = TodoManager()
 
 TOOL_HANDLERS = {
     "bash":       lambda **kw: run_bash(kw["command"]),
-    "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit")),
+    "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit", "10")),
     "write_file": lambda **kw: run_write(kw["path"], kw["text"]),
     "edit_file":  lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
     "todo":       lambda **kw: TODO.update(kw["items"]),

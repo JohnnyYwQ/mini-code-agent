@@ -63,3 +63,7 @@ build/
 # Temporary files
 *.tmp
 *.bak
+
+
+# Temporary summary
+summary_and_plan.md
