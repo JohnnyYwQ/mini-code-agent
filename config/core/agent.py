@@ -26,6 +26,7 @@ MODEL = os.environ["MODEL_ID"]
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks. Act, don't explain."
 SUBAGENT_SYSTEM = f"You are a coding subagent at {WORKDIR}. Complete the given task, then summarize your findings."
+MAX_ROUND = 500
 
 class TodoManager:
     """
@@ -298,6 +299,8 @@ def agent_loop(messages: list):
     """
     Run the agent until stop using tool.
 
+    set max round 500, raise runtime error if exceeded.
+
     Each loop:
     - call the model with the current messages
     - append the assistant response to message
@@ -309,7 +312,7 @@ def agent_loop(messages: list):
     The messages list is mutated in place.
     """
     rounds_since_todo = 0
-    while True:
+    for _ in range(MAX_ROUND):
         response = client.messages.create(
             model=MODEL,
             system=SYSTEM,
@@ -342,6 +345,7 @@ def agent_loop(messages: list):
         if rounds_since_todo >= 3:
             tool_results.append({"type": "text", "text": "<reminder>Update your todos</reminder>"})
         messages.append({"role": "user", "content": tool_results})
+    raise RuntimeError(f"Agent exceeded max rounds: {MAX_ROUND}")
 
 if __name__ == "__main__":
     """
