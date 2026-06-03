@@ -4,11 +4,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.test import TestCase
-from .views import AGENT_HISTORY
-from core.agent import agent_loop
 
 os.environ.setdefault("MODEL_ID", "test-model")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-api-key")
+
+from .views import AGENT_HISTORY
+from core.agent import agent_loop
+from core.agent import validate_anthropic_config
+
 
 class ChatApiJsonFallbackTests(TestCase):
     def setUp(self):
@@ -78,7 +81,7 @@ class ChatApiJsonFallbackTests(TestCase):
         self.assertEqual(data["tool_trace"], [])    
 
 class AgentLoopTests(TestCase):
-    @patch("core.agent.MAX_ROUND", 3)
+    @patch("core.agent.MAX_ROUNDS", 3)
     @patch("core.agent.client.messages.create")
     def test_agent_loop_raises_when_max_round_exceeded(self, mock_create):
         fake_tool_block = SimpleNamespace(
@@ -102,3 +105,34 @@ class AgentLoopTests(TestCase):
 
         self.assertIn("Agent exceeded max rounds", str(ctx.exception))
         self.assertEqual(mock_create.call_count, 3)        
+
+class AnthropicApiTest(TestCase):
+    @patch("core.agent.MODEL", "")
+    def test_missing_model_id(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            validate_anthropic_config()
+        self.assertEqual(str(ctx.exception), "MODEL_ID is required")
+    
+    @patch("core.agent.MODEL", "test_model")
+    @patch("core.agent.API_KEY", "")
+    def test_missing_api_key(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            validate_anthropic_config()
+        self.assertEqual(str(ctx.exception), "ANTHROPIC_API_KEY is required")
+    
+    @patch("core.agent.MODEL", "test_model")
+    @patch("core.agent.API_KEY", "test_key")
+    @patch("core.agent.BASE_URL", "test.test.test")
+    def test_invalid_base_url(self):
+        with self.assertRaises(RuntimeError) as ctx:
+            validate_anthropic_config()
+        self.assertEqual(str(ctx.exception), "ANTHROPIC_BASE_URL must be a valid http(s) URL")
+
+    @patch("core.agent.MODEL", "test_model")
+    @patch("core.agent.API_KEY", "test_key")
+    @patch("core.agent.BASE_URL", None)
+    @patch("core.agent.client.messages.create", side_effect=Exception("network down"))
+    def test_agent_loop_wraps_anthropic_error(self, mock_create):
+        with self.assertRaises(RuntimeError) as ctx:
+            agent_loop([{"role": "user", "content": "hello"}])
+        self.assertEqual(str(ctx.exception), "Anthropic API request failed. Check MODEL_ID, ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, network, and model access.")
