@@ -14,6 +14,7 @@ from pathlib import Path
 
 from anthropic import Anthropic
 from dotenv import load_dotenv
+from urllib.parse import urlparse
 
 load_dotenv(override=True)
 
@@ -22,11 +23,25 @@ if os.getenv("ANTHROPIC_BASE_URL"):
 
 WORKDIR = Path.cwd()
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.environ["MODEL_ID"]
+MODEL = os.getenv("MODEL_ID")
+API_KEY = os.getenv("ANTHROPIC_API_KEY")
+BASE_URL = os.getenv("ANTHROPIC_BASE_URL")
 
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks. Act, don't explain."
 SUBAGENT_SYSTEM = f"You are a coding subagent at {WORKDIR}. Complete the given task, then summarize your findings."
-MAX_ROUND = 500
+MAX_ROUNDS = 500
+
+def validate_anthropic_config():
+    if not MODEL:
+        raise RuntimeError("MODEL_ID is required")
+    if not API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY is required")
+    if BASE_URL and not valid_http_url(BASE_URL):
+        raise RuntimeError("ANTHROPIC_BASE_URL must be a valid http(s) URL")
+
+def valid_http_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
 
 class TodoManager:
     """
@@ -312,7 +327,7 @@ def agent_loop(messages: list):
     The messages list is mutated in place.
     """
     rounds_since_todo = 0
-    for _ in range(MAX_ROUND):
+    for _ in range(MAX_ROUNDS):
         response = client.messages.create(
             model=MODEL,
             system=SYSTEM,
@@ -345,7 +360,7 @@ def agent_loop(messages: list):
         if rounds_since_todo >= 3:
             tool_results.append({"type": "text", "text": "<reminder>Update your todos</reminder>"})
         messages.append({"role": "user", "content": tool_results})
-    raise RuntimeError(f"Agent exceeded max rounds: {MAX_ROUND}")
+    raise RuntimeError(f"Agent exceeded max rounds: {MAX_ROUNDS}")
 
 if __name__ == "__main__":
     """
