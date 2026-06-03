@@ -327,15 +327,21 @@ def agent_loop(messages: list):
     The messages list is mutated in place.
     """
     rounds_since_todo = 0
+    validate_anthropic_config()
     for _ in range(MAX_ROUNDS):
-        response = client.messages.create(
-            model=MODEL,
-            system=SYSTEM,
-            tools=PARENT_TOOLS,
-            messages=messages,
-            max_tokens=8000,
-        )
-
+        try:
+            response = client.messages.create(
+                model=MODEL,
+                system=SYSTEM,
+                tools=PARENT_TOOLS,
+                messages=messages,
+                max_tokens=8000,
+            )
+        except Exception as e:
+            raise RuntimeError(
+                "Anthropic API request failed. Check MODEL_ID, ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, network, and model access." 
+            ) from e
+        
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
             return
