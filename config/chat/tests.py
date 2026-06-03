@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.test import TestCase
 from .views import AGENT_HISTORY
+from core.agent import agent_loop
 
 os.environ.setdefault("MODEL_ID", "test-model")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-api-key")
@@ -75,3 +76,29 @@ class ChatApiJsonFallbackTests(TestCase):
         self.assertEqual(data["user"], "hello")
         self.assertEqual(data["assistant"], "hello from test")
         self.assertEqual(data["tool_trace"], [])    
+
+class AgentLoopTests(TestCase):
+    @patch("core.agent.MAX_ROUND", 3)
+    @patch("core.agent.client.messages.create")
+    def test_agent_loop_raises_when_max_round_exceeded(self, mock_create):
+        fake_tool_block = SimpleNamespace(
+            type="tool_use",
+            name="unknown tool",
+            input={},
+            id="toolu_test",
+        )
+
+        fake_response = SimpleNamespace(
+            stop_reason="tool_use",
+            content=[fake_tool_block]
+        )
+
+        mock_create.return_value = fake_response
+
+        messages = [{"role": "user", "content": "keep using tools"}]
+
+        with self.assertRaises(RuntimeError) as ctx:
+            agent_loop(messages)
+
+        self.assertIn("Agent exceeded max rounds", str(ctx.exception))
+        self.assertEqual(mock_create.call_count, 3)        
