@@ -27,7 +27,7 @@ MODEL = os.getenv("MODEL_ID")
 API_KEY = os.getenv("ANTHROPIC_API_KEY")
 BASE_URL = os.getenv("ANTHROPIC_BASE_URL")
 
-SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks. Act, don't explain."
+SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks. Act, don't explain.All destructive operations require user approval."
 SUBAGENT_SYSTEM = f"You are a coding subagent at {WORKDIR}. Complete the given task, then summarize your findings."
 MAX_ROUNDS = 500
 
@@ -132,10 +132,6 @@ def run_bash(command: str) -> str:
 
     get command as input strout+stderr as output    
     """
-    dangerous = ["sudo", "rm -rf /", "shutdown", "reboot", "> /dev/"]
-    if any(d in command for d in dangerous):
-        return f"Error: dangerous command blocked:{command}"
-    
     try: 
         r = subprocess.run(command, shell=True, capture_output=True,
                            text=True, timeout=120, cwd=WORKDIR)
@@ -211,7 +207,18 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
 
     except Exception as e:
         return f"Error: {e}"
-    
+
+def run_glob(pattern: str) -> str:
+    import glob as g
+    try:
+        results = []
+        for match in g.glob(pattern, root_dir=WORKDIR):
+            if (WORKDIR/ match).resolve().is_relative_to(WORKDIR):
+                results.append(match)
+        return "\n".join(results) if results else "(no matches)"
+    except Exception as e:
+        return f"Error: {e}"
+
 def run_subagent(prompt: str) -> str:
     """
     run a subagent to do the task,
@@ -259,6 +266,7 @@ TOOL_HANDLERS = {
     "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit", "10")),
     "write_file": lambda **kw: run_write(kw["path"], kw["text"]),
     "edit_file":  lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
+    "glob":       lambda **kw: run_glob(kw["pattern"]),
     "todo":       lambda **kw: TODO.update(kw["items"]),
     "task":       lambda **kw: run_subagent(kw["prompt"]),
 }
@@ -289,6 +297,13 @@ CHILD_TOOLS = [
                          "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}},
                          "required": ["path", "old_text", "new_text"]},
     },
+    {
+        "name": "glob", "description": "Find files matching a glob pattern",
+        "input_schema": {"type": "object",
+                         "properties": {"pattern": {"type": "string"}},
+                         "required": ["pattern"],
+                        },
+    },
 ]
 
 PARENT_TOOLS = CHILD_TOOLS + [
@@ -308,6 +323,56 @@ PARENT_TOOLS = CHILD_TOOLS + [
                          "required": ["prompt"]}
     }
 ]
+
+# ═══════════════════════════════════════════════════════════
+#  NEW in s03: Three-Gate Permission Pipeline
+# ═══════════════════════════════════════════════════════════
+
+# Gate 1: hard deny list - always forbidden
+DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if=", "> /dev/sda"]
+
+def check_deny_list(command: str) -> str | None:
+    for pattern in DENY_LIST:
+        if pattern in command:
+            return f"Blocked: '{pattern}' is on the deny list"
+    return None
+
+# Gate 2: Rule matching - context-dependent checks
+PERMISSTION_RULES = [
+    {"tools": ["write_file", "edit_file"],
+     "check": lambda args: not (WORKDIR/ args.get("path", "")).reslove().is_relative_to(WORKDIR),
+     "message": "Writing outside workspace"},
+     {"tools": ["bash"],
+      "check": lambda args: any(kw in args.get("command") for kw in ["rm", "> /etc/", "chmod 777"]),
+      "message": "Potentially destructive command"},
+]
+
+def check_rules(tool_name: str, args: dict) -> str | None:
+    for rule in PERMISSTION_RULES:
+        if tool_name in rule["tools"] and rule["check"](args):
+            return rule["message"]
+    return None
+
+# Gate 3: User approval - wait for confirmation after rule match
+def ask_user(tool_name: str, args: dict, reason: str) -> str:
+    print(f"\n\033[33m⚠  {reason}\033[0m")
+    print(f"   Tool: {tool_name}({args})")
+    choice = input("   Allow? [y/N] ").strip().lower()
+    return "allow" if choice in ("y", "yes") else "deny"
+
+# Pipeline: all three gates chained
+def check_permission(block) -> bool:
+    if block.name == "bash":
+        reason = check_deny_list(block.input.get("command", ""))
+        if reason:
+            print(f"\n\033[31m⛔ {reason}\033[0m")
+            return False
+    reason = check_rules(block.name, block.input)
+    if reason:
+        decision = ask_user(block.name, block.input, reason)
+        if decision == "deny":
+            return False
+    return True
 
 
 def agent_loop(messages: list):
@@ -349,6 +414,11 @@ def agent_loop(messages: list):
         tool_results = []
         for block in response.content:
             if block.type == "tool_use":
+                print(f"\033[33m> {block.name}\033[0m")
+                if not check_permission(block):
+                    tool_results.append({"type": "tool_result", "tool_use_id": block.id,
+                                         "content": "Permission denied."})
+                    continue
                 handler = TOOL_HANDLERS.get(block.name)
                 if block.name == "task":
                     desc = block.input.get("description", "subtask")
@@ -377,16 +447,17 @@ if __name__ == "__main__":
     history = []
     while True:
         try:
-            query = input(">: ")
-            if query in ["q", "", "exit"]:
-                break
+            query = input("\033[36ms02 >> \033[0m")
         except (KeyboardInterrupt, EOFError):
+                break
+        if query.strip().lower() in ("q", "", "exit"):
             break
         history.append({"role": "user", "content": query})
         agent_loop(history)
+        # Print the model's final text response
         response_content = history[-1]["content"]
         if isinstance(response_content, list):
             for block in response_content:
-                if hasattr(block, "text"):
+                if getattr(block, "type", None) == "text":
                     print(block.text)
             print()
