@@ -15,6 +15,8 @@ from pathlib import Path
 from anthropic import Anthropic
 from dotenv import load_dotenv
 from urllib.parse import urlparse
+from dataclasses import dataclass
+import yaml
 
 load_dotenv(override=True)
 
@@ -42,6 +44,80 @@ def validate_anthropic_config():
 def valid_http_url(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+SKILL_DIR = Path("WORKDIR / .skills")
+
+@dataclass
+class Skill:
+    name: str
+    description: str
+    path: Path
+    content: str | None = None
+
+class SKillManager:
+    """
+    manage skills
+    """
+
+    def __init__(self, skill_dir):
+        self.skill_dir: Path = Path(skill_dir)
+        self.registry: dict[str, Skill] = {}
+        self._scan_skills()
+
+
+    def _parser_frontmatter(self, text: str):
+        """
+        parser YAML frontmatter
+        """
+        if not text.startswith("---"):
+            return {}, text
+        parts = text.split("---", 2)
+        if len(parts) < 3:
+            return {}, text
+        try:
+            meta = yaml.safe_load(parts[1])
+        except yaml.YAMLError:
+            meta = {}
+        return meta, parts[2]
+
+    def list_skills(self):
+        """
+        list all skills' metadata for llm
+        """
+        return [{"name": skill.name, "description": skill.description} for skill in self.registry.values()]
+
+
+    def _scan_skills(self):
+        """
+        scan all skills
+        """
+        for d in self.skill_dir.iterdir():
+            if not d.is_dir():
+                continue
+            manifest = d / "SKILL.md"
+            if not manifest.exists():
+                continue
+            text = manifest.read_text()
+            meta, content = self._parser_frontmatter(text)
+            name = meta.get("name", d.name)
+            description = meta.get("description", text.split("\n")[0].lstrip("#").strip())
+            if not (name and description):
+                continue
+            skill = Skill(name=name,
+                        description=description,
+                        path = manifest, 
+                        content = content)
+            self.registry[name] = skill
+
+        
+
+    def load_skill(self, name: str):
+        """
+        load a skill from registry by name
+        """
+        if name not in self.registry.keys():
+            return "skill not found"
+        return self.registry[name].content
 
 class TodoManager:
     """
@@ -325,54 +401,42 @@ PARENT_TOOLS = CHILD_TOOLS + [
 ]
 
 # ═══════════════════════════════════════════════════════════
-#  NEW in s03: Three-Gate Permission Pipeline
+#  Hook System 
 # ═══════════════════════════════════════════════════════════
 
-# Gate 1: hard deny list - always forbidden
-DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if=", "> /dev/sda"]
+HOOKS = {"UserPromptSubmit": [],
+         "PreToolUse": [],
+         "PostToolUse": [],
+         "Stop": []}
 
-def check_deny_list(command: str) -> str | None:
-    for pattern in DENY_LIST:
-        if pattern in command:
-            return f"Blocked: '{pattern}' is on the deny list"
+def registry_hook(event: str, callback):
+    HOOKS[event].append(callback)
+
+def trigger_hooks(event:str, *args):
+    for callback in HOOKS[event]:
+        result = callback(*args)
+        if result is not None:
+            return result
     return None
 
-# Gate 2: Rule matching - context-dependent checks
-PERMISSTION_RULES = [
-    {"tools": ["write_file", "edit_file"],
-     "check": lambda args: not (WORKDIR/ args.get("path", "")).reslove().is_relative_to(WORKDIR),
-     "message": "Writing outside workspace"},
-     {"tools": ["bash"],
-      "check": lambda args: any(kw in args.get("command") for kw in ["rm", "> /etc/", "chmod 777"]),
-      "message": "Potentially destructive command"},
-]
+# permission check
+DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if"]
+DESTRUCTIVE = ["rm ", "> /etc/", "chmod 777"]
 
-def check_rules(tool_name: str, args: dict) -> str | None:
-    for rule in PERMISSTION_RULES:
-        if tool_name in rule["tools"] and rule["check"](args):
-            return rule["message"]
-    return None
-
-# Gate 3: User approval - wait for confirmation after rule match
-def ask_user(tool_name: str, args: dict, reason: str) -> str:
-    print(f"\n\033[33m⚠  {reason}\033[0m")
-    print(f"   Tool: {tool_name}({args})")
-    choice = input("   Allow? [y/N] ").strip().lower()
-    return "allow" if choice in ("y", "yes") else "deny"
-
-# Pipeline: all three gates chained
-def check_permission(block) -> bool:
+def permission_hook(block):
+    """
+    for bash tool
+    """
     if block.name == "bash":
-        reason = check_deny_list(block.input.get("command", ""))
-        if reason:
-            print(f"\n\033[31m⛔ {reason}\033[0m")
-            return False
-    reason = check_rules(block.name, block.input)
-    if reason:
-        decision = ask_user(block.name, block.input, reason)
-        if decision == "deny":
-            return False
-    return True
+        if any(command in DENY_LIST for command in block.input):
+            return "Error: Dangerous command blocked."
+        if any(command in DESTRUCTIVE for command in block.input):
+            isallowed = input("Allow? Yes/No").strip().lower()
+            if isallowed == "yes":
+                return True
+            else:
+                return "User stoped."
+
 
 
 def agent_loop(messages: list):
