@@ -17,6 +17,8 @@ from dotenv import load_dotenv
 from urllib.parse import urlparse
 from dataclasses import dataclass
 import yaml
+import time
+import json
 
 load_dotenv(override=True)
 
@@ -24,6 +26,8 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
+TOOL_RESULTS_DIR = WORKDIR / ".tool_result"
+TRANSCRIPTION = WORKDIR / ".transcription"
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
 MODEL = os.getenv("MODEL_ID")
 API_KEY = os.getenv("ANTHROPIC_API_KEY")
@@ -32,6 +36,14 @@ BASE_URL = os.getenv("ANTHROPIC_BASE_URL")
 SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks. Act, don't explain.All destructive operations require user approval."
 SUBAGENT_SYSTEM = f"You are a coding subagent at {WORKDIR}. Complete the given task, then summarize your findings."
 MAX_ROUNDS = 500
+PERSIST_THRESHOLD = 4000
+KEEP_RECENT = 30
+
+def create_session_id():
+    """
+    create a unique session id
+    """
+
 
 def validate_anthropic_config():
     if not MODEL:
@@ -44,6 +56,11 @@ def validate_anthropic_config():
 def valid_http_url(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+# ═══════════════════════════════════════════════════════════
+#  Skill System
+# ═══════════════════════════════════════════════════════════
 
 SKILL_DIR = Path("WORKDIR / .skills")
 
@@ -119,6 +136,134 @@ class SKillManager:
             return "skill not found"
         return self.registry[name].content
 
+# ═══════════════════════════════════════════════════════════
+#  messages compress
+# ═══════════════════════════════════════════════════════════
+def estimate_token(messages: list):
+    """
+    estimate tokens
+    """
+    return len(str(messages)) // 4
+
+
+def collect_tool_results(messages: list):
+    """
+    collect all tool results
+    """
+    tool_results = []
+    for mid, msg in enumerate(messages):
+        if msg.get("role") != "user":
+            continue
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for bid, block in enumerate(content):
+            if not isinstance(block, dict):
+                continue
+            if block.get("type") == "tool_result":
+                tool_results.append((mid, bid, block))
+
+    return tool_results
+
+def micro_compact(messages: list):
+    """
+    compact history messages tool result
+    """
+    results = collect_tool_results(messages)
+    if len(results) <= KEEP_RECENT:
+        return messages
+    for result in results[:-KEEP_RECENT]:
+        if len(result.get("content", "")) > 120:
+            result["content"] = "[Earlier tool result compacted, rerun if needed]"
+    return messages 
+        
+        
+
+def tool_result_budget(messages: list, max_bytes: int = 200_000):
+    """
+    persist long tool result then replace it by placeholder, just for newest message
+    """ 
+    last_message = messages[-1] if messages else None
+    if not last_message or last_message.get("role") != "user" or not isinstance(last_message.get("content"), list):
+        return messages
+    content = last_message.get("content")
+    blocks = [(index, block) for index, block in enumerate(content) if isinstance(block, dict) and block.get("type") == "tool_result"]
+    total = [sum(len(str(b.get("content", ""))) for _, b in blocks)]    
+    if total <= max_bytes:
+        return messages
+    ranked = sorted(blocks, lambda p: len(p[1].get("content", "")), reverse=True)
+    for _, block in ranked:
+        if total <= max_bytes:
+            break
+        tool_use_id = block.get("tool_use_id")
+        persist_large_output(tool_use_id, block.get("content", ""))
+        total = [sum(len(b.get("content")) for _, b in blocks)]
+    return messages
+
+
+def persist_large_output(tool_use_id: str, output: str):
+    """
+    save output into disk file
+    """
+    if len(output) <= PERSIST_THRESHOLD:
+        return output
+    TOOL_RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+    p = TOOL_RESULTS_DIR / f"tool_result_{tool_use_id}"
+    if not p.exists():
+        p.write_text(output)
+    return f"<persist large output>\nFull output:{p}\nPreview:\n{output[:2000]}\n</persist large output>"
+    
+
+def snip_compact(messages: list, max_messages: int = 50):
+    """
+    replace middle messages by placeholder
+    """
+    if len(messages) < max_messages:
+        return messages
+    keep_head, keep_tail = 3, max_messages - 3
+    snipped = len(messages) - keep_head - keep_tail
+    return messages[:keep_head] + [{"role": "user", "content": f"snipped {snipped} messages"}] + messages[-keep_tail:]
+    
+
+def write_transcript(messages: list):
+    """
+    save all messages into disk before llm summary
+    """
+    TRANSCRIPTION.mkdir(parents=True, exist_ok=True)
+    path = WORKDIR / TRANSCRIPTION / f"transcription_{int(time.time)}.json"
+    with path.open("w") as f:
+        for msg in messages:
+            f.write(json.dumps(msg, default=str) + "\n")
+    return path
+
+def summary_history(messages: list):
+    """
+    call llm to summary history
+    """
+    conversation = json.dump(messages, default=str)[:80000]
+    prompt = ("Summarize this coding-agent conversation so work can continue.\n"
+              "Preserve: 1. current goal, 2. key findings/decisions, 3. file read/changed,"
+              "4. remaining work, 5. user constrains\n Be compact but concret" + conversation)
+    response = client.messages.create(model=MODEL, messages=prompt, max_tokens=2000)
+    return "".join(block.text for block in response.content if hasattr(block, "text")) or "empty summary"
+
+def auto_compact(messages: list):
+    """
+    replace messages by llm history summary with compacted tips
+    """
+    write_transcript(messages)
+    print("[Transcripted]")
+    summary = summary_history(messages)
+    return {"role": "user", "content": f"[Compacted]\n\n{summary}"}
+
+def reactive_compact(messages: list):
+    """
+    emergency compact, replace messages by llm history summary + last 5 messages
+    """
+    write_transcript(messages)
+    summary = summary_history(messages)
+    return [{"role": "user", "content": f"[Reactive compacted]\n\n{summary}"}, *messages[-5:]]
+            
 class TodoManager:
     """
     In-memory todo list for the agent.
