@@ -209,16 +209,44 @@ def persist_large_output(tool_use_id: str, output: str):
     return f"<persist large output>\nFull output:{p}\nPreview:\n{output[:2000]}\n</persist large output>"
     
 
-def snip_compact(messages: list, max_messages: int = 50):
+def snip_compact(messages: list[dict], max_messages: int = 50) -> list[dict]:
     """
     replace middle messages by placeholder
     """
-    if len(messages) < max_messages:
+    if len(messages) <= max_messages:
         return messages
-    keep_head, keep_tail = 3, max_messages - 3
+    keep_head, keep_tail = 3, max_messages - 3 - 1
+    msg_head = messages[keep_head - 1]
+    msg_tail = messages[-keep_tail]
+
+    if not can_snip(msg_head):
+        if msg_head.get("role") == "assistant":
+            keep_head += 1
+    if not can_snip(msg_tail):
+        if msg_tail.get("role") == "user":
+            keep_tail += 1
+        
     snipped = len(messages) - keep_head - keep_tail
     return messages[:keep_head] + [{"role": "user", "content": f"snipped {snipped} messages"}] + messages[-keep_tail:]
     
+def can_snip(msg) -> bool:
+    """
+    check if can snip
+    """
+    if msg.get("role") == "assistant":
+        content = msg.get("content")
+        for block in content:
+            block_type = block.type
+            if "tool_use" in block_type:
+                return False
+    if msg.get("role") == "user":
+        content = msg.get("content")
+        if isinstance(content, list):
+            for block in content:
+                block_type = block.get("type")
+                if "tool_result" in block_type:
+                    return False
+    return True
 
 def write_transcript(messages: list):
     """
@@ -474,6 +502,38 @@ def run_subagent(prompt: str) -> str:
                                 "content": str(output)[:50000]})
         submessages.append({"role": "user", "content": results})
     return "".join(b.text for b in response.content if hasattr(b, "text")) or "(no summary)"
+
+# ═══════════════════════════════════════════════════════════
+#   Memory System
+# ═══════════════════════════════════════════════════════════
+MEMORY_DIR = WORKDIR / "/memory"
+MEMROY_INDEX = MEMORY_DIR / "MEMORY.md"
+
+def summary_memory(messages: list) -> Path:
+    """
+    call llm to summary memory
+    """
+
+def show_all_memory(memory_file: Path):
+    """
+    read all metadata of all memory
+    """
+
+def select_relevant_memory(memory_dir: Path):
+    """
+    llm select relevant memory
+    """
+
+def consolidate_memory(memory_dir: Path):
+    """
+    update memory
+    """
+
+def remove_memory(memory_dir: Path):
+    """
+    remove memory
+    """
+
 
 TODO = TodoManager()
 SKILL = SKillManager(SKILL_DIR)
