@@ -33,17 +33,11 @@ MODEL = os.getenv("MODEL_ID")
 API_KEY = os.getenv("ANTHROPIC_API_KEY")
 BASE_URL = os.getenv("ANTHROPIC_BASE_URL")
 
-SYSTEM = f"You are a coding agent at {WORKDIR}. Use tools to solve tasks. Act, don't explain.All destructive operations require user approval."
-SUBAGENT_SYSTEM = f"You are a coding subagent at {WORKDIR}. Complete the given task, then summarize your findings."
+
 MAX_ROUNDS = 500
 PERSIST_THRESHOLD = 4000
 KEEP_RECENT = 30
-
-def create_session_id():
-    """
-    create a unique session id
-    """
-
+CONTEXT_LIMIT = 200_000
 
 def validate_anthropic_config():
     if not MODEL:
@@ -62,7 +56,8 @@ def valid_http_url(url: str) -> bool:
 #  Skill System
 # ═══════════════════════════════════════════════════════════
 
-SKILL_DIR = Path("WORKDIR / .skills")
+SKILL_DIR = Path(WORKDIR / ".skills")
+
 
 @dataclass
 class Skill:
@@ -173,8 +168,8 @@ def micro_compact(messages: list):
     if len(results) <= KEEP_RECENT:
         return messages
     for result in results[:-KEEP_RECENT]:
-        if len(result.get("content", "")) > 120:
-            result["content"] = "[Earlier tool result compacted, rerun if needed]"
+        if len(result[2].get("content", "")) > 120:
+            result[2]["content"] = "[Earlier tool result compacted, rerun if needed]"
     return messages 
         
         
@@ -188,16 +183,16 @@ def tool_result_budget(messages: list, max_bytes: int = 200_000):
         return messages
     content = last_message.get("content")
     blocks = [(index, block) for index, block in enumerate(content) if isinstance(block, dict) and block.get("type") == "tool_result"]
-    total = [sum(len(str(b.get("content", ""))) for _, b in blocks)]    
+    total = sum(len(str(b.get("content", ""))) for _, b in blocks)
     if total <= max_bytes:
         return messages
-    ranked = sorted(blocks, lambda p: len(p[1].get("content", "")), reverse=True)
+    ranked = sorted(blocks, key=lambda p: len(str(p[1].get("content", ""))), reverse=True)
     for _, block in ranked:
         if total <= max_bytes:
             break
         tool_use_id = block.get("tool_use_id")
-        persist_large_output(tool_use_id, block.get("content", ""))
-        total = [sum(len(b.get("content")) for _, b in blocks)]
+        block["content"] = persist_large_output(tool_use_id, block.get("content", ""))
+        total = sum(len(b.get("content")) for _, b in blocks)
     return messages
 
 
@@ -240,11 +235,11 @@ def summary_history(messages: list):
     """
     call llm to summary history
     """
-    conversation = json.dump(messages, default=str)[:80000]
+    conversation = json.dumps(messages, default=str)[:80000]
     prompt = ("Summarize this coding-agent conversation so work can continue.\n"
               "Preserve: 1. current goal, 2. key findings/decisions, 3. file read/changed,"
               "4. remaining work, 5. user constrains\n Be compact but concret" + conversation)
-    response = client.messages.create(model=MODEL, messages=prompt, max_tokens=2000)
+    response = client.messages.create(model=MODEL, messages=[{"role": "user", "content": prompt}], max_tokens=2000)
     return "".join(block.text for block in response.content if hasattr(block, "text")) or "empty summary"
 
 def auto_compact(messages: list):
@@ -254,7 +249,7 @@ def auto_compact(messages: list):
     write_transcript(messages)
     print("[Transcripted]")
     summary = summary_history(messages)
-    return {"role": "user", "content": f"[Compacted]\n\n{summary}"}
+    return [{"role": "user", "content": f"[Compacted]\n\n{summary}"}]
 
 def reactive_compact(messages: list):
     """
@@ -459,7 +454,7 @@ def run_subagent(prompt: str) -> str:
     for _ in range(30):
         response = client.messages.create(
             model=MODEL,
-            system=SUBAGENT_SYSTEM,
+            system=SUB_SYSTEM,
             tools=CHILD_TOOLS,
             messages=submessages,
             max_tokens=8000,
@@ -481,15 +476,33 @@ def run_subagent(prompt: str) -> str:
     return "".join(b.text for b in response.content if hasattr(b, "text")) or "(no summary)"
 
 TODO = TodoManager()
+SKILL = SKillManager(SKILL_DIR)
+
+def build_system() -> str:
+    catalog = SKILL.list_skills()
+    return (
+        f"You are a coding agent at {WORKDIR}. "
+        f"Skills available:\n{catalog}\n"
+        "Use load_skill to get full details when needed."
+    )
+
+SYSTEM = build_system()
+
+SUB_SYSTEM = (
+    f"You are a coding agent at {WORKDIR}. "
+    "Complete the task you were given, then return a concise summary. "
+    "Do not delegate further."
+)
 
 TOOL_HANDLERS = {
     "bash":       lambda **kw: run_bash(kw["command"]),
-    "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit", "10")),
+    "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit", 10)),
     "write_file": lambda **kw: run_write(kw["path"], kw["text"]),
     "edit_file":  lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
     "glob":       lambda **kw: run_glob(kw["pattern"]),
     "todo":       lambda **kw: TODO.update(kw["items"]),
     "task":       lambda **kw: run_subagent(kw["prompt"]),
+    "load_skill": lambda **kw: SKILL.load_skill(kw["name"]),
 }
 
 
@@ -542,8 +555,20 @@ PARENT_TOOLS = CHILD_TOOLS + [
         "input_schema": {"type": "object",
                          "properties": {"prompt": {"type": "string"}, "description": {"type": "string", "description": "Short description of the task"}},
                          "required": ["prompt"]}
-    }
+    },
+    {
+        "name": "load_skill", "description": "Load the full content of a skill by name.",
+        "input_schema": {"type": "object", 
+                         "properties": {"name": {"type": "string"}}, 
+                         "required": ["name"]}
+    },
+    {
+        "name": "compact", "description": "Summarize earlier conversation to free context space.",
+        "input_schema": {"type": "object", 
+                         "properties": {"focus": {"type": "string"}}}
+    },
 ]
+
 
 # ═══════════════════════════════════════════════════════════
 #  Hook System 
@@ -554,7 +579,7 @@ HOOKS = {"UserPromptSubmit": [],
          "PostToolUse": [],
          "Stop": []}
 
-def registry_hook(event: str, callback):
+def register_hook(event: str, callback):
     HOOKS[event].append(callback)
 
 def trigger_hooks(event:str, *args):
@@ -569,20 +594,60 @@ DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if"]
 DESTRUCTIVE = ["rm ", "> /etc/", "chmod 777"]
 
 def permission_hook(block):
-    """
-    for bash tool
-    """
+    """PreToolUse: s03 check_permission() logic moved here."""
     if block.name == "bash":
-        if any(command in DENY_LIST for command in block.input):
-            return "Error: Dangerous command blocked."
-        if any(command in DESTRUCTIVE for command in block.input):
-            isallowed = input("Allow? Yes/No").strip().lower()
-            if isallowed == "yes":
-                return True
-            else:
-                return "User stoped."
+        for pattern in DENY_LIST:
+            if pattern in block.input.get("command", ""):
+                print(f"\n\033[31m⛔ Blocked: '{pattern}'\033[0m")
+                return "Permission denied by deny list"
+        for kw in DESTRUCTIVE:
+            if kw in block.input.get("command", ""):
+                print(f"\n\033[33m⚠  Potentially destructive command\033[0m")
+                print(f"   Tool: {block.name}({block.input})")
+                choice = input("   Allow? [y/N] ").strip().lower()
+                if choice not in ("y", "yes"):
+                    return "Permission denied by user"
+    if block.name in ("write_file", "edit_file"):
+        path = block.input.get("path", "")
+        if not (WORKDIR / path).resolve().is_relative_to(WORKDIR):
+            print(f"\n\033[33m⚠  Writing outside workspace\033[0m")
+            print(f"   Tool: {block.name}({block.input})")
+            choice = input("   Allow? [y/N] ").strip().lower()
+            if choice not in ("y", "yes"):
+                return "Permission denied by user"
+    return None
 
 
+def log_hook(block):
+    """PreToolUse: log every tool call."""
+    args_preview = str(list(block.input.values())[:2])[:60]
+    print(f"\033[90m[HOOK] {block.name}({args_preview})\033[0m")
+    return None
+
+def large_output_hook(block, output):
+    """PostToolUse: warn on large output."""
+    if len(str(output)) > 100000:
+        print(f"\033[33m[HOOK] ⚠ Large output from {block.name}: {len(str(output))} chars\033[0m")
+    return None
+
+# UserPromptSubmit hook: log user input before it reaches the LLM
+def context_inject_hook(query: str):
+    print(f"\033[90m[HOOK] UserPromptSubmit: working in {WORKDIR}\033[0m")
+    return None
+
+# Stop hook: print summary when loop is about to exit
+def summary_hook(messages: list):
+    tool_count = sum(1 for m in messages
+                     for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+                     if isinstance(b, dict) and b.get("type") == "tool_result")
+    print(f"\033[90m[HOOK] Stop: session used {tool_count} tool calls\033[0m")
+    return None
+
+register_hook("UserPromptSubmit", context_inject_hook)
+register_hook("PreToolUse", permission_hook)
+register_hook("PreToolUse", log_hook)
+register_hook("PostToolUse", large_output_hook)
+register_hook("Stop", summary_hook)
 
 def agent_loop(messages: list):
     """
@@ -603,6 +668,12 @@ def agent_loop(messages: list):
     rounds_since_todo = 0
     validate_anthropic_config()
     for _ in range(MAX_ROUNDS):
+        messages[:] = tool_result_budget(messages)
+        messages[:] = snip_compact(messages)
+        messages[:] = micro_compact(messages)
+        if estimate_token(messages) > CONTEXT_LIMIT:
+            print("[auto compact]")
+            messages[:] = auto_compact(messages)
         try:
             response = client.messages.create(
                 model=MODEL,
@@ -612,35 +683,49 @@ def agent_loop(messages: list):
                 max_tokens=8000,
             )
         except Exception as e:
+
             raise RuntimeError(
                 "Anthropic API request failed. Check MODEL_ID, ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, network, and model access." 
             ) from e
         
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
+            force = trigger_hooks("Stop", messages)
+            if force:
+                messages.append({"role": "user", "content": str(force)})
+                continue
             return
+        
         used_todo = False
         tool_results = []
         for block in response.content:
-            if block.type == "tool_use":
-                print(f"\033[33m> {block.name}\033[0m")
-                if not check_permission(block):
-                    tool_results.append({"type": "tool_result", "tool_use_id": block.id,
-                                         "content": "Permission denied."})
-                    continue
-                handler = TOOL_HANDLERS.get(block.name)
-                if block.name == "task":
-                    desc = block.input.get("description", "subtask")
-                    prompt = block.input.get("prompt", "")
-                    print(f"> task({desc}): {prompt}")
-                try:
-                    output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
-                except Exception as e:
-                    output = f"Error: {e}"
+            if block.type != "tool_use":
+                continue
+            blocked = trigger_hooks("PreToolUse", block)
+            if blocked:
                 tool_results.append({"type": "tool_result", "tool_use_id": block.id,
-                                            "content": str(output)[:40000]})
-                if block.name == "todo":
-                    used_todo = True
+                                     "content": str(blocked)})
+                continue
+            if block.name == "compact":
+                messages[:] = auto_compact(messages)
+                tool_results.append({"type": "tool_result", "tool_use_id": block.id,
+                                        "content": "[Compacted]. Conversation history has been summaried."})
+                continue
+            if block.name == "task":
+                desc = block.input.get("description", "subtask")
+                prompt = block.input.get("prompt", "")
+                print(f"> task({desc}): {prompt}")
+
+            handler = TOOL_HANDLERS.get(block.name)
+            try:
+                output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
+            except Exception as e:
+                output = f"Error: {e}"
+            trigger_hooks("PostToolUse", block, output)
+            tool_results.append({"type": "tool_result", "tool_use_id": block.id,
+                                        "content": str(output)})
+            if block.name == "todo":
+                used_todo = True
         rounds_since_todo = 0 if used_todo else rounds_since_todo + 1
         if rounds_since_todo >= 3:
             tool_results.append({"type": "text", "text": "<reminder>Update your todos</reminder>"})
@@ -656,11 +741,12 @@ if __name__ == "__main__":
     history = []
     while True:
         try:
-            query = input("\033[36ms02 >> \033[0m")
+            query = input("\033[36mmini-code-agent >> \033[0m")
         except (KeyboardInterrupt, EOFError):
                 break
         if query.strip().lower() in ("q", "", "exit"):
             break
+        trigger_hooks("UserPromptSubmit", query)
         history.append({"role": "user", "content": query})
         agent_loop(history)
         # Print the model's final text response
