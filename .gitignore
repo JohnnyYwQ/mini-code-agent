@@ -73,3 +73,10 @@ cookies.txt
 
 # Learning notes
 docs/
+
+
+# Temporary runtime file
+.tool_result/
+.transcription/
+
+core_agent_copy.py
