@@ -80,3 +80,8 @@ docs/
 .transcription/
 
 core_agent_copy.py
+
+
+# test cache
+.mypy_cache/
+.ruff_cache/
