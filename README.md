@@ -54,7 +54,6 @@ Mini Code Agent 是一个用于学习和本地开发的小型 Django 编码智�
 │       └── SKILL.md
 ├── LICENSE
 ├── pyproject.toml
-├── requirements.txt
 ├── uv.lock
 └── config/
     ├── manage.py
@@ -90,7 +89,7 @@ Mini Code Agent 是一个用于学习和本地开发的小型 Django 编码智�
 - `uv.lock`：由 uv 生成的精确依赖锁文件
 - `.github/workflows/ci.yml`：在 push、pull request 或手动触发时运行质量检查
 
-`pyproject.toml` 和 `uv.lock` 是推荐的依赖管理入口。`requirements.txt` 暂时保留为兼容依赖列表，但它不是锁文件。
+`pyproject.toml` 声明项目依赖，`uv.lock` 锁定完整依赖图中的精确版本；二者是项目唯一的依赖管理入口。
 
 ## 工作流程
 
