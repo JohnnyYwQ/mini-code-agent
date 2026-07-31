@@ -45,6 +45,9 @@ Mini Code Agent 是一个用于学习和本地开发的小型 Django 编码智�
 ```text
 .
 ├── .env.example
+├── .github/
+│   └── workflows/
+│       └── ci.yml
 ├── .pre-commit-config.yaml
 ├── .skills/
 │   └── code-review/
@@ -84,6 +87,7 @@ Mini Code Agent 是一个用于学习和本地开发的小型 Django 编码智�
 - `config/chat/tests/`：单元测试和行为测试
 - `pyproject.toml`：项目依赖和 Ruff、mypy、coverage 配置
 - `uv.lock`：由 uv 生成的精确依赖锁文件
+- `.github/workflows/ci.yml`：在 push、pull request 或手动触发时运行质量检查
 
 `pyproject.toml` 和 `uv.lock` 是推荐的依赖管理入口。`requirements.txt` 暂时保留为兼容依赖列表，但它不是锁文件。
 
@@ -215,6 +219,8 @@ uv run pre-commit install
 
 安装后，`git commit` 会自动执行 Ruff 和 mypy。hook 如果自动修改了文件，本次提交会停止；检查修改、重新暂存后再次提交即可。
 
+GitHub Actions 会在 push、pull request 或手动触发时，使用 Python 3.13 和 `uv.lock` 重复运行格式检查、lint、mypy、测试与 coverage 报告。
+
 ## 环境变量
 
 - `MODEL_ID`：必填，传给 Anthropic Messages API 的模型名称
@@ -239,7 +245,6 @@ uv run pre-commit install
 - 没有流式模型输出。
 - 没有用户账号和按用户隔离的会话。
 - 没有完整的工具调用轨迹可视化。
-- 尚未配置远程 CI。
 - `bash` 工具仅适用于可信环境。
 
 ## 路线图
@@ -248,5 +253,4 @@ uv run pre-commit install
 - 添加流式 Web 和 API 响应
 - 添加用户账号和会话隔离
 - 添加工具调用轨迹可视化
-- 添加 GitHub Actions 持续集成
 - 继续扩展关键分支的测试覆盖率
