@@ -17,7 +17,7 @@ def parse_frontmatter(text: str) -> tuple[dict, str]:
         return {}, text
 
     metadata_text = "".join(lines[1:split_index])
-    body = "".join(lines[split_index + 1:])
+    body = "".join(lines[split_index + 1 :])
     try:
         metadata = yaml.safe_load(metadata_text) or {}
     except yaml.YAMLError:

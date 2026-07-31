@@ -16,10 +16,7 @@ class TodoManagerTests(TestCase):
 
         self.assertEqual(
             result,
-            "[>]: #1: Plan changes\n"
-            "[x]: #2: Ship changes\n"
-            "\n"
-            "(1/2 completed)",
+            "[>]: #1: Plan changes\n[x]: #2: Ship changes\n\n(1/2 completed)",
         )
 
     def test_update_with_empty_list_reports_no_todos(self):
@@ -54,9 +51,7 @@ class TodoManagerTests(TestCase):
             ValueError,
             "Item 7: text is required",
         ):
-            manager.update(
-                [{"id": 7, "text": "   ", "state": "pending"}]
-            )
+            manager.update([{"id": 7, "text": "   ", "state": "pending"}])
 
     def test_update_rejects_unknown_state(self):
         manager = TodoManager()
@@ -65,9 +60,7 @@ class TodoManagerTests(TestCase):
             ValueError,
             "Item 3: state must be in pending, in_progress, done",
         ):
-            manager.update(
-                [{"id": 3, "text": "Task", "state": "blocked"}]
-            )
+            manager.update([{"id": 3, "text": "Task", "state": "blocked"}])
 
     def test_update_allows_only_one_in_progress_item(self):
         manager = TodoManager()

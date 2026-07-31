@@ -1,10 +1,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 
-if __package__:
-    from .frontmatter import parse_frontmatter
-else:
-    from frontmatter import parse_frontmatter
+from .frontmatter import parse_frontmatter
 
 
 @dataclass

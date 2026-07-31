@@ -9,24 +9,23 @@ Agent with tools:
 
 import os
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
-
-from prompt_toolkit import PromptSession
-from prompt_toolkit.history import FileHistory
-from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from urllib.parse import urlparse
 
 from anthropic import Anthropic
+from anthropic.types import ToolParam
 from dotenv import load_dotenv
-from urllib.parse import urlparse
+from prompt_toolkit import PromptSession
+from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.history import FileHistory
 
 if __package__:
     from .compaction import ContextCompactor
-    from .frontmatter import parse_frontmatter
     from .skills import SkillManager
     from .todo import TodoManager
 else:
     from compaction import ContextCompactor
-    from frontmatter import parse_frontmatter
     from skills import SkillManager
     from todo import TodoManager
 
@@ -37,12 +36,13 @@ if os.getenv("ANTHROPIC_BASE_URL"):
 
 WORKDIR = Path.cwd()
 client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL = os.getenv("MODEL_ID")
-API_KEY = os.getenv("ANTHROPIC_API_KEY")
+MODEL: str = os.getenv("MODEL_ID", "")
+API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
 BASE_URL = os.getenv("ANTHROPIC_BASE_URL")
 
 
 MAX_ROUNDS = 500
+
 
 def validate_anthropic_config():
     if not MODEL:
@@ -52,6 +52,7 @@ def validate_anthropic_config():
     if BASE_URL and not valid_http_url(BASE_URL):
         raise RuntimeError("ANTHROPIC_BASE_URL must be a valid http(s) URL")
 
+
 def valid_http_url(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
@@ -60,7 +61,7 @@ def valid_http_url(url: str) -> bool:
 CLI_HISTORY = Path.home() / ".mini-code-agent" / "cli_history"
 CLI_HISTORY.parent.mkdir(parents=True, exist_ok=True)
 
-session = PromptSession(
+session = PromptSession[str](
     history=FileHistory(str(CLI_HISTORY)),
     auto_suggest=AutoSuggestFromHistory(),
     enable_history_search=True,
@@ -77,9 +78,7 @@ def request_compaction_summary(prompt: str) -> str:
         max_tokens=2000,
     )
     return (
-        "".join(
-            block.text for block in response.content if hasattr(block, "text")
-        )
+        "".join(block.text for block in response.content if hasattr(block, "text"))
         or "empty summary"
     )
 
@@ -94,7 +93,7 @@ CONTEXT_COMPACTOR = ContextCompactor(
 def safe_path(p: str) -> Path:
     """
     transform string path to Path path.
-    
+
     make sure path not escape workdir
 
     get str as input Path as output
@@ -104,6 +103,7 @@ def safe_path(p: str) -> Path:
     if not path.is_relative_to(workspace):
         raise ValueError(f"Path eacaped workspace: {path}")
     return path
+
 
 def run_bash(command: str) -> str:
     """
@@ -115,15 +115,22 @@ def run_bash(command: str) -> str:
         timeout
         other error
 
-    get command as input strout+stderr as output    
+    get command as input strout+stderr as output
     """
-    try: 
-        r = subprocess.run(command, shell=True, capture_output=True,
-                           text=True, timeout=120, cwd=WORKDIR)
+    try:
+        r = subprocess.run(
+            command,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=WORKDIR,
+        )
         out = str(r.stdout + r.stderr).strip()
         return out
     except subprocess.TimeoutExpired:
         return "Error: Timeout(120)"
+
 
 def run_read(path: str, limit: int = 10) -> str:
     """
@@ -135,7 +142,7 @@ def run_read(path: str, limit: int = 10) -> str:
     file content is str, but we need limit lines of content
     so content change as a pipeline:
         str -> lines -> limit lines -> str
-    
+
     path and limit lines as input, file content as output
     """
     f = safe_path(path)
@@ -150,8 +157,9 @@ def run_read(path: str, limit: int = 10) -> str:
         lines = lines[:limit] + [f"... {len(lines) - limit} more lines."]
     return "\n".join(lines)
 
+
 def run_write(path: str, text: str) -> str:
-    """ 
+    """
     write text in file.
 
     make sure path exist, if not, make it
@@ -168,7 +176,8 @@ def run_write(path: str, text: str) -> str:
         return f"{len(text)} bytes wrote"
     except Exception as e:
         return f"Error: {e}"
-    
+
+
 def run_edit(path: str, old_text: str, new_text: str) -> str:
     """
     edit file content: replace old text by new text
@@ -188,17 +197,19 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
 
         if not old_text:
             raise ValueError("old text can not be empty.")
-        if not old_text in content:
+        if old_text not in content:
             raise ValueError(f"text not found: {old_text} in {path}.")
-        
+
         f.write_text(content.replace(old_text, new_text, 1))
         return f"Edited file{path}."
 
     except Exception as e:
         return f"Error: {e}."
 
+
 def run_glob(pattern: str) -> str:
     import glob as g
+
     try:
         workspace = WORKDIR.resolve()
         results = []
@@ -209,17 +220,24 @@ def run_glob(pattern: str) -> str:
     except Exception as e:
         return f"Error: {e}"
 
+
 def print_extract_text(messages_content):
     """
     get text from assistant response
     """
     if not isinstance(messages_content, list):
         return str(messages_content)
-    text = "\n".join(block.text for block in messages_content if getattr(block, "type", None) == "text")
+    text = "\n".join(
+        block.text
+        for block in messages_content
+        if getattr(block, "type", None) == "text"
+    )
     return text
+
 
 TODO = TodoManager()
 SKILL = SkillManager(SKILL_DIR)
+
 
 def build_system() -> str:
     catalog = SKILL.list_skills()
@@ -229,100 +247,147 @@ def build_system() -> str:
         "Use load_skill to get full details when needed."
     )
 
+
 SYSTEM = build_system()
 
 TOOL_HANDLERS = {
-    "bash":       lambda **kw: run_bash(kw["command"]),
-    "read_file":  lambda **kw: run_read(kw["path"], kw.get("limit", 10)),
+    "bash": lambda **kw: run_bash(kw["command"]),
+    "read_file": lambda **kw: run_read(kw["path"], kw.get("limit", 10)),
     "write_file": lambda **kw: run_write(kw["path"], kw["text"]),
-    "edit_file":  lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
-    "glob":       lambda **kw: run_glob(kw["pattern"]),
-    "todo":       lambda **kw: TODO.update(kw["items"]),
-    "load_skill": lambda **kw: SKILL.load_skill(kw["name"])
+    "edit_file": lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
+    "glob": lambda **kw: run_glob(kw["pattern"]),
+    "todo": lambda **kw: TODO.update(kw["items"]),
+    "load_skill": lambda **kw: SKILL.load_skill(kw["name"]),
 }
 
 
-TOOLS = [
+TOOLS: list[ToolParam] = [
     {
-        "name": "bash", "description": "Run a bash command in a shell.",
-        "input_schema": {"type": "object",
-                        "properties": {"command": {"type": "string"}},
-                        "required": ["command"]}
+        "name": "bash",
+        "description": "Run a bash command in a shell.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"command": {"type": "string"}},
+            "required": ["command"],
+        },
     },
     {
-        "name": "read_file", "description": "read file content.",
-        "input_schema": {"type": "object",
+        "name": "read_file",
+        "description": "read file content.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 0},
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "write_file",
+        "description": "write text in a file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"path": {"type": "string"}, "text": {"type": "string"}},
+            "required": ["path", "text"],
+        },
+    },
+    {
+        "name": "edit_file",
+        "description": "edit a file.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {"type": "string"},
+                "old_text": {"type": "string"},
+                "new_text": {"type": "string"},
+            },
+            "required": ["path", "old_text", "new_text"],
+        },
+    },
+    {
+        "name": "glob",
+        "description": "Find files matching a glob pattern",
+        "input_schema": {
+            "type": "object",
+            "properties": {"pattern": {"type": "string"}},
+            "required": ["pattern"],
+        },
+    },
+    {
+        "name": "todo",
+        "description": "update task list. Track step in multi-step tasks.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
                         "properties": {
-                            "path": {"type": "string"},
-                            "limit": {"type": "integer", "minimum": 0},
+                            "id": {"type": "integer"},
+                            "text": {"type": "string"},
+                            "state": {
+                                "type": "string",
+                                "enum": ["pending", "in_progress", "done"],
+                            },
                         },
-                        "required": ["path"]}
+                        "required": ["id", "text", "state"],
+                    },
+                }
+            },
+            "required": ["items"],
+        },
     },
     {
-        "name": "write_file", "description": "write text in a file.",
-        "input_schema": {"type": "object",
-                        "properties": {"path": {"type": "string"}, "text": {"type": "string"}},
-                        "required": ["path", "text"]}
+        "name": "load_skill",
+        "description": "Load the full content of a skill by name.",
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string"}},
+            "required": ["name"],
+        },
     },
     {
-        "name": "edit_file", "description": "edit a file.",
-        "input_schema": {"type": "object",
-                         "properties": {"path": {"type": "string"}, "old_text": {"type": "string"}, "new_text": {"type": "string"}},
-                         "required": ["path", "old_text", "new_text"]},
-    },
-    {
-        "name": "glob", "description": "Find files matching a glob pattern",
-        "input_schema": {"type": "object",
-                         "properties": {"pattern": {"type": "string"}},
-                         "required": ["pattern"],
-                        },
-    },
-    {
-        "name": "todo", "description": "update task list. Track step in multi-step tasks.",
-        "input_schema": {"type": "object",
-                         "properties": {"items": {"type": "array",
-                                                  "items": {"type": "object",
-                                                            "properties": {"id": {"type": "integer"}, "text": {"type": "string"}, "state": {"type": "string", "enum": ["pending", "in_progress", "done"]}},
-                                                            "required": ["id", "text", "state"]}}},
-                         "required": ["items"]},
-    },
-    {
-        "name": "load_skill", "description": "Load the full content of a skill by name.",
-        "input_schema": {"type": "object", 
-                         "properties": {"name": {"type": "string"}}, 
-                         "required": ["name"]}
-    },
-    {
-        "name": "compact", "description": "Summarize earlier conversation to free context space.",
-        "input_schema": {"type": "object",
-                         "properties": {},
-        }
+        "name": "compact",
+        "description": "Summarize earlier conversation to free context space.",
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
     },
 ]
 
 
 # ═══════════════════════════════════════════════════════════
-#  Hook System 
+#  Hook System
 # ═══════════════════════════════════════════════════════════
+HookCallback = Callable[..., object | None]
 
-HOOKS = {"UserPromptSubmit": [],
-         "PreToolUse": [],
-         "PostToolUse": [],
-         "Stop": []}
+HOOKS: dict[str, list[HookCallback]] = {
+    "UserPromptSubmit": [],
+    "PreToolUse": [],
+    "PostToolUse": [],
+    "Stop": [],
+}
 
-def register_hook(event: str, callback):
+
+def register_hook(event: str, callback: HookCallback) -> None:
     HOOKS[event].append(callback)
 
-def trigger_hooks(event:str, *args):
+
+def trigger_hooks(event: str, *args: object) -> object | None:
     for callback in HOOKS[event]:
         result = callback(*args)
         if result is not None:
             return result
     return None
 
+
 # permission check
 DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if"]
 DESTRUCTIVE = ["rm ", "> /etc/", "chmod 777"]
+
 
 def permission_hook(block):
     """PreToolUse: s03 check_permission() logic moved here."""
@@ -333,7 +398,7 @@ def permission_hook(block):
                 return "Permission denied by deny list"
         for kw in DESTRUCTIVE:
             if kw in block.input.get("command", ""):
-                print(f"\n\033[33m⚠  Potentially destructive command\033[0m")
+                print("\n\033[33m⚠  Potentially destructive command\033[0m")
                 print(f"   Tool: {block.name}({block.input})")
                 choice = input("   Allow? [y/N] ").strip().lower()
                 if choice not in ("y", "yes"):
@@ -353,30 +418,40 @@ def log_hook(block):
     print(f"\033[90m[HOOK] {block.name}({args_preview})\033[0m")
     return None
 
+
 def large_output_hook(block, output):
     """PostToolUse: warn on large output."""
     if len(str(output)) > 100000:
-        print(f"\033[33m[HOOK] ⚠ Large output from {block.name}: {len(str(output))} chars\033[0m")
+        print(
+            f"\033[33m[HOOK] ⚠ Large output from {block.name}: {len(str(output))} chars\033[0m"
+        )
     return None
+
 
 # UserPromptSubmit hook: log user input before it reaches the LLM
 def context_inject_hook(query: str):
     print(f"\033[90m[HOOK] UserPromptSubmit: working in {WORKDIR}\033[0m")
     return None
 
+
 # Stop hook: print summary when loop is about to exit
 def summary_hook(messages: list):
-    tool_count = sum(1 for m in messages
-                     for b in (m.get("content") if isinstance(m.get("content"), list) else [])
-                     if isinstance(b, dict) and b.get("type") == "tool_result")
+    tool_count = sum(
+        1
+        for m in messages
+        for b in (m.get("content") if isinstance(m.get("content"), list) else [])
+        if isinstance(b, dict) and b.get("type") == "tool_result"
+    )
     print(f"\033[90m[HOOK] Stop: session used {tool_count} tool calls\033[0m")
     return None
+
 
 register_hook("UserPromptSubmit", context_inject_hook)
 register_hook("PreToolUse", permission_hook)
 register_hook("PreToolUse", log_hook)
 register_hook("PostToolUse", large_output_hook)
 register_hook("Stop", summary_hook)
+
 
 def agent_loop(messages: list):
     """
@@ -407,11 +482,10 @@ def agent_loop(messages: list):
                 max_tokens=8000,
             )
         except Exception as e:
-
             raise RuntimeError(
-                "Anthropic API request failed. Check MODEL_ID, ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, network, and model access." 
+                "Anthropic API request failed. Check MODEL_ID, ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, network, and model access."
             ) from e
-        
+
         messages.append({"role": "assistant", "content": response.content})
         if response.stop_reason != "tool_use":
             force = trigger_hooks("Stop", messages)
@@ -419,7 +493,7 @@ def agent_loop(messages: list):
                 messages.append({"role": "user", "content": str(force)})
                 continue
             return
-        
+
         used_todo = False
         tool_results = []
         for block in response.content:
@@ -427,31 +501,47 @@ def agent_loop(messages: list):
                 continue
             blocked = trigger_hooks("PreToolUse", block)
             if blocked:
-                tool_results.append({"type": "tool_result", "tool_use_id": block.id,
-                                     "content": str(blocked)})
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": str(blocked),
+                    }
+                )
                 continue
             if block.name == "compact":
                 messages[:] = CONTEXT_COMPACTOR.compact_history(messages[:-1])
                 messages.append({"role": "assistant", "content": response.content})
-                tool_results.append({"type": "tool_result", "tool_use_id": block.id,
-                                        "content": "[Compacted]. Conversation history has been summaried."})
+                tool_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": "[Compacted]. Conversation history has been summaried.",
+                    }
+                )
                 continue
 
             handler = TOOL_HANDLERS.get(block.name)
             try:
-                output = handler(**block.input) if handler else f"Unknown tool: {block.name}"
+                output = (
+                    handler(**block.input) if handler else f"Unknown tool: {block.name}"
+                )
             except Exception as e:
                 output = f"Error: {e}"
             trigger_hooks("PostToolUse", block, output)
-            tool_results.append({"type": "tool_result", "tool_use_id": block.id,
-                                        "content": str(output)})
+            tool_results.append(
+                {"type": "tool_result", "tool_use_id": block.id, "content": str(output)}
+            )
             if block.name == "todo":
                 used_todo = True
         rounds_since_todo = 0 if used_todo else rounds_since_todo + 1
         if rounds_since_todo >= 3:
-            tool_results.append({"type": "text", "text": "<reminder>Update your todos</reminder>"})
+            tool_results.append(
+                {"type": "text", "text": "<reminder>Update your todos</reminder>"}
+            )
         messages.append({"role": "user", "content": tool_results})
     raise RuntimeError(f"Agent exceeded max rounds: {MAX_ROUNDS}")
+
 
 if __name__ == "__main__":
     """
@@ -466,7 +556,7 @@ if __name__ == "__main__":
                 "\033[36mmini-code-agent >> \033[0m",
             )
         except (KeyboardInterrupt, EOFError):
-                break
+            break
         if query.strip().lower() in ("q", "", "exit"):
             break
         trigger_hooks("UserPromptSubmit", query)

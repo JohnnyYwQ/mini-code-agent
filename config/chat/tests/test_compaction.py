@@ -38,7 +38,7 @@ def assistant_text(text: str) -> dict:
 class ContextCompactorTests(TestCase):
     def test_prepare_for_model_snapshots_before_compacting(self):
         """
-        after transcript, existance of file and content of file 
+        after transcript, existance of file and content of file
         """
         old_output = "old output " * 20
         messages = [
@@ -185,25 +185,24 @@ class ContextCompactorTests(TestCase):
             prepared = compactor.prepare_for_model(messages)
 
         self.assertEqual(
-            [block.id for message in prepared
-             if message["role"] == "assistant"
-             for block in message["content"]
-             if block.type == "tool_use"],
+            [
+                block.id
+                for message in prepared
+                if message["role"] == "assistant"
+                for block in message["content"]
+                if block.type == "tool_use"
+            ],
             ["head-boundary", "tail-boundary"],
         )
         self.assertEqual(
-            [block["tool_use_id"] for message in prepared
-             if message["role"] == "user"
-             and isinstance(message["content"], list)
-             for block in message["content"]
-             if block["type"] == "tool_result"],
+            [
+                block["tool_use_id"]
+                for message in prepared
+                if message["role"] == "user" and isinstance(message["content"], list)
+                for block in message["content"]
+                if block["type"] == "tool_result"
+            ],
             ["head-boundary", "tail-boundary"],
         )
-        self.assertEqual(
-            prepared[4],
-            {"role": "user", "content": "snipped 1 messages"}
-        )
-        self.assertNotIn(
-            {"role": "user", "content": "middle"},
-            prepared
-        )
+        self.assertEqual(prepared[4], {"role": "user", "content": "snipped 1 messages"})
+        self.assertNotIn({"role": "user", "content": "middle"}, prepared)

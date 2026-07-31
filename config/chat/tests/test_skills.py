@@ -40,8 +40,7 @@ class SkillManagerTests(TestCase):
             skill_dir = Path(temp_dir) / "code-review"
             skill_dir.mkdir()
             (skill_dir / "SKILL.md").write_text(
-                "# Code Review\n"
-                "Review the requested changes.\n"
+                "# Code Review\nReview the requested changes.\n"
             )
 
             manager = SkillManager(temp_dir)
@@ -94,7 +93,7 @@ class SkillManagerTests(TestCase):
 
     def test_load_skill_reports_unknown_name(self):
         """
-        load unknown skill will return correct info 
+        load unknown skill will return correct info
         """
         with TemporaryDirectory() as temp_dir:
             manager = SkillManager(temp_dir)

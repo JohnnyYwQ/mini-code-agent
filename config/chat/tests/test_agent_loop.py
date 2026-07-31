@@ -275,8 +275,6 @@ class AnthropicConfigTests(TestCase):
                     RuntimeError,
                     "Anthropic API request failed",
                 ):
-                    agent_loop(
-                        [{"role": "user", "content": "hello"}]
-                    )
+                    agent_loop([{"role": "user", "content": "hello"}])
 
         create.assert_called_once()

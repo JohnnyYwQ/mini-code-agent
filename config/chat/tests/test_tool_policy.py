@@ -9,9 +9,7 @@ from core.agent import TOOL_HANDLERS, TOOLS
 
 class ToolSchemaTests(TestCase):
     def test_read_file_limit_is_a_non_negative_integer(self):
-        read_file = next(
-            tool for tool in TOOLS if tool["name"] == "read_file"
-        )
+        read_file = next(tool for tool in TOOLS if tool["name"] == "read_file")
 
         self.assertEqual(
             read_file["input_schema"]["properties"]["limit"],

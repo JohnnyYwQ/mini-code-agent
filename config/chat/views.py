@@ -1,15 +1,15 @@
 import json
 
+from core.agent import agent_loop
 from django.http import JsonResponse
 from django.shortcuts import render
 
-
-from core.agent import agent_loop
-
 AGENT_HISTORY = []
+
 
 def index(request):
     return render(request, "chat/index.html")
+
 
 def brief_error(exc):
     """
@@ -18,6 +18,7 @@ def brief_error(exc):
     """
     message = str(exc).splitlines()[0].strip()
     return message[:300] or exc.__class__.__name__
+
 
 def extract_assistant_text(message):
     """
@@ -49,6 +50,7 @@ def extract_assistant_text(message):
 
     return "\n".join(parts) or None
 
+
 def chat_api(request):
     """
     during post request, we catch:
@@ -63,7 +65,9 @@ def chat_api(request):
             extract_assistant_text catch result of message
     """
     if request.method != "POST":
-        response = JsonResponse({"ok": False, "error": "Method not allowed"}, status=405)
+        response = JsonResponse(
+            {"ok": False, "error": "Method not allowed"}, status=405
+        )
         response["Allow"] = "POST"
         return response
     try:
@@ -82,24 +86,34 @@ def chat_api(request):
 
     if not query:
         return JsonResponse({"ok": False, "error": "Message is required"}, status=400)
-    
-    AGENT_HISTORY.append({
-        "role": "user",
-        "content": query,
-    })
+
+    AGENT_HISTORY.append(
+        {
+            "role": "user",
+            "content": query,
+        }
+    )
 
     try:
         agent_loop(AGENT_HISTORY)
     except Exception as e:
-        return JsonResponse({"ok": False, "error": f"Agent failed: {brief_error(e)}"}, status=500)
+        return JsonResponse(
+            {"ok": False, "error": f"Agent failed: {brief_error(e)}"}, status=500
+        )
 
-    assistant_text = extract_assistant_text(AGENT_HISTORY[-1] if AGENT_HISTORY else None)
+    assistant_text = extract_assistant_text(
+        AGENT_HISTORY[-1] if AGENT_HISTORY else None
+    )
     if not assistant_text:
-        return JsonResponse({"ok": False, "error": "Agent returned no assistant text"}, status=502)
+        return JsonResponse(
+            {"ok": False, "error": "Agent returned no assistant text"}, status=502
+        )
 
-    return JsonResponse({
-        "ok": True,
-        "user": raw_message,
-        "assistant": assistant_text,
-        "tool_trace": [],
-    })
+    return JsonResponse(
+        {
+            "ok": True,
+            "user": raw_message,
+            "assistant": assistant_text,
+            "tool_trace": [],
+        }
+    )

@@ -23,15 +23,12 @@ class TodoManager:
                 raise ValueError(f"Item {item_id}: text is required")
             if state not in ["pending", "in_progress", "done"]:
                 raise ValueError(
-                    f"Item {item_id}: state must be in "
-                    "pending, in_progress, done"
+                    f"Item {item_id}: state must be in pending, in_progress, done"
                 )
             if state == "in_progress":
                 in_progress_count += 1
 
-            validated.append(
-                {"id": item_id, "text": text, "state": state}
-            )
+            validated.append({"id": item_id, "text": text, "state": state})
 
         if in_progress_count > 1:
             raise ValueError("only one task can be in progress")

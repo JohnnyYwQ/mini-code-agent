@@ -1,191 +1,252 @@
 # Mini Code Agent
 
-## Project Overview
+[English](README.en.md)
 
-Mini Code Agent is a small Django-based coding agent project. It provides a web chat page and a JSON chat API that send user messages to an Anthropic Claude Messages API agent loop.
+## 项目简介
 
-The agent can call local tools, observe tool results, and continue the conversation until Claude returns a final response. It is intended for local development and learning, not for public production deployment.
+Mini Code Agent 是一个用于学习和本地开发的小型 Django 编码智能体项目。它提供网页聊天界面、JSON 聊天接口和命令行入口，并通过 Anthropic Python SDK 调用 Claude Messages API。
 
-## Features
+智能体可以调用本地工具、读取工具结果并继续对话，直到模型返回最终回复。项目目前适合可信的本地开发环境，不适合直接部署到公网生产环境。
 
-- Django web chat page at `/`.
-- JSON chat endpoint at `/api/chat/`.
-- Anthropic Claude Messages API integration through the `anthropic` Python SDK.
-- `tool_use` / `tool_result` agent loop.
-- Local agent tools:
-  - `bash`: run shell commands in the workspace.
-  - `read_file`: read files from the workspace.
-  - `write_file`: write files inside the workspace.
-  - `edit_file`: replace text in a file inside the workspace.
-  - `todo`: maintain an in-memory task list for the agent.
-  - `task`: start a subagent with fresh conversation context.
-- `safe_path` workspace path restriction for file tools.
-- CLI and web entry points.
+## 功能
 
-## Tech Stack
+- Django 网页聊天界面：`/`
+- JSON 聊天接口：`/api/chat/`
+- 基于 Anthropic Messages API 的 `tool_use` / `tool_result` 智能体循环
+- 本地工具：
+  - `bash`：在工作区运行 shell 命令
+  - `read_file`：读取工作区内的文件
+  - `write_file`：在工作区内写入文件
+  - `edit_file`：替换工作区文件中的指定文本
+  - `glob`：按 glob 模式查找文件
+  - `todo`：维护内存中的任务列表
+  - `load_skill`：按名称加载 skill 内容
+  - `compact`：压缩较早的对话历史
+- 从 `.skills/` 的一级子目录发现 `SKILL.md`
+- 上下文压缩、工具结果裁剪和压缩前会话快照
+- 工具调用前后及停止阶段的 hook
+- 文件工具的工作区路径限制
+- Web 和 CLI 两种入口
+- Django 测试套件，以及 Ruff、mypy、coverage 和 pre-commit 开发检查
 
-- Python 3
+## 技术栈
+
+- Python 3.13+
 - Django 5.2
 - Anthropic Python SDK
+- uv
 - python-dotenv
-- HTML, CSS, and vanilla JavaScript for the web chat UI
+- prompt_toolkit
+- PyYAML
+- HTML、CSS 和原生 JavaScript
 
-## Project Structure
+## 项目结构
 
 ```text
 .
 ├── .env.example
+├── .pre-commit-config.yaml
+├── .skills/
+│   └── code-review/
+│       └── SKILL.md
+├── pyproject.toml
 ├── requirements.txt
-└── config
+├── uv.lock
+└── config/
     ├── manage.py
-    ├── config
+    ├── config/
     │   ├── settings.py
     │   ├── urls.py
     │   ├── asgi.py
     │   └── wsgi.py
-    ├── chat
-    │   ├── urls.py
-    │   ├── views.py
+    ├── chat/
+    │   ├── tests/
     │   ├── templates/chat/index.html
-    │   └── static/chat/
-    │       ├── chat.js
-    │       └── style.css
-    └── core
-        └── agent.py
+    │   ├── static/chat/
+    │   ├── urls.py
+    │   └── views.py
+    └── core/
+        ├── agent.py
+        ├── compaction.py
+        ├── frontmatter.py
+        ├── skills.py
+        └── todo.py
 ```
 
-Key files:
+关键文件：
 
-- `config/core/agent.py`: Anthropic client setup, agent loop, tool definitions, tool handlers, CLI entry point, and workspace path checks.
-- `config/chat/views.py`: Django web page view and `/api/chat/` JSON API.
-- `config/chat/static/chat/chat.js`: browser-side form handling and JSON request to `/api/chat/`.
-- `config/chat/templates/chat/index.html`: web chat page template.
+- `config/core/agent.py`：Anthropic 客户端、智能体循环、工具定义、工具处理器、hook 和 CLI 入口
+- `config/core/compaction.py`：会话快照、工具结果裁剪和上下文压缩
+- `config/core/frontmatter.py`：解析 `SKILL.md` 的 YAML frontmatter
+- `config/core/skills.py`：发现、注册和加载 skill
+- `config/core/todo.py`：校验和维护 todo 状态
+- `config/chat/views.py`：网页视图和 `/api/chat/` JSON 接口
+- `config/chat/tests/`：单元测试和行为测试
+- `pyproject.toml`：项目依赖和 Ruff、mypy、coverage 配置
+- `uv.lock`：由 uv 生成的精确依赖锁文件
 
-## How It Works
+`pyproject.toml` 和 `uv.lock` 是推荐的依赖管理入口。`requirements.txt` 暂时保留为兼容依赖列表，但它不是锁文件。
 
-1. A user sends a message from the web page or CLI.
-2. The message is appended to an in-memory conversation history.
-3. `agent_loop()` calls the Anthropic Claude Messages API with the current messages and available tools.
-4. If Claude returns `tool_use`, the matching local Python handler runs.
-5. Tool output is appended back as `tool_result`.
-6. The loop continues until Claude returns a non-tool final response.
-7. The web API returns the assistant text as JSON, or the CLI prints it to stdout.
+## 工作流程
 
-The web entry point uses a process-level `AGENT_HISTORY` list in `config/chat/views.py`. The CLI entry point uses a local `history` list inside `config/core/agent.py`.
+1. 用户通过网页、JSON API 或 CLI 提交消息。
+2. `UserPromptSubmit` hook 在消息进入模型前运行。
+3. 上下文压缩器保存当前会话快照，并按需要裁剪或压缩历史。
+4. `agent_loop()` 调用 Anthropic Messages API。
+5. 如果模型返回 `tool_use`，对应的本地工具处理器会在 hook 检查后执行。
+6. 工具输出作为 `tool_result` 添加到消息历史。
+7. 循环继续，直到模型返回非工具调用的最终回复。
+8. Web API 返回 JSON，CLI 将最终文本打印到终端。
 
-## Quick Start
+Web 入口当前使用 `config/chat/views.py` 中进程级的 `AGENT_HISTORY`；CLI 入口使用 `config/core/agent.py` 中的本地 `history`。
 
-Create a virtual environment and install dependencies:
+## 快速开始
+
+先安装 [uv](https://docs.astral.sh/uv/getting-started/installation/)，然后在项目根目录同步锁定的依赖：
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync --locked
 ```
 
-Create a local `.env` file:
+uv 会在项目根目录创建或更新 `.venv`。通常不需要手动激活虚拟环境，后续命令可以通过 `uv run` 执行。
+
+创建本地环境变量文件：
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env` and set your Anthropic credentials:
+编辑 `.env`：
 
 ```env
-MODEL_ID=claude-3-5-sonnet-latest
-ANTHROPIC_API_KEY=your_api_key_here
+MODEL_ID=your_model_id
+ANTHROPIC_API_KEY=your_api_key
 # ANTHROPIC_BASE_URL=
 ```
 
-Run the Django web app:
+启动 Django：
 
 ```bash
-python3 config/manage.py runserver
+uv run python config/manage.py runserver
 ```
 
-This command keeps running and occupies the current terminal. Keep this terminal open while testing the app.
-
-Open the web UI in a browser:
+在浏览器中打开：
 
 ```text
 http://127.0.0.1:8000/
 ```
 
-The recommended test path is the browser web UI. The frontend page includes Django's CSRF token and sends it automatically when posting to `/api/chat/`.
+启动 CLI：
 
-Call the JSON API with curl:
+```bash
+uv run python config/core/agent.py
+```
 
-`/api/chat/` is protected by Django CSRF middleware. A header like `X-CSRFToken: <csrf-token>` is not enough by itself, because Django also expects the matching CSRF cookie.
+输入 `q`、`exit`、空行、`Ctrl-C` 或 EOF 可以退出 CLI。
 
-Run these curl commands in another terminal window or tab while `python3 config/manage.py runserver` is still running.
+## 调用 JSON API
 
-Step 1: request the homepage and save cookies:
+`/api/chat/` 受 Django CSRF 中间件保护。推荐直接使用网页界面；如需使用 curl，请同时发送匹配的 CSRF cookie 和请求头。
+
+先请求首页并保存 cookie：
 
 ```bash
 curl -c cookies.txt http://127.0.0.1:8000/
 ```
 
-Step 2: open `cookies.txt` and copy the real `csrftoken` value.
-
-Step 3: send the JSON request with both the saved cookie and the matching CSRF token header:
+从 `cookies.txt` 复制真实的 `csrftoken`，然后发送请求：
 
 ```bash
 curl -X POST http://127.0.0.1:8000/api/chat/ \
   -b cookies.txt \
   -H "Content-Type: application/json" \
-  -H "X-CSRFToken: <real-csrftoken-from-cookies.txt>" \
+  -H "X-CSRFToken: <csrftoken-from-cookies.txt>" \
   -d '{"message":"hello"}'
 ```
 
-If you see `403 CSRF cookie not set`, the request reached Django, but the CSRF cookie is missing or the token does not match. It does not mean the URL is unreachable or that the `/api/chat/` route is missing.
+## 开发检查
 
-Run the CLI entry point:
+运行测试：
 
 ```bash
-python3 config/core/agent.py
+uv run python config/manage.py test chat
 ```
 
-Exit the CLI with `q`, `exit`, an empty input, `Ctrl-C`, or EOF.
+运行 Ruff：
 
-## Environment Variables
+```bash
+uv run ruff check .
+uv run ruff format --check .
+```
 
-- `MODEL_ID`: required. The Claude model name passed to the Messages API.
-- `ANTHROPIC_API_KEY`: required for normal Anthropic API usage.
-- `ANTHROPIC_BASE_URL`: optional. Custom Anthropic-compatible base URL. When this is set, the current code removes `ANTHROPIC_AUTH_TOKEN` from the process environment.
+运行 mypy：
 
-Environment variables are loaded with `python-dotenv` from `.env`.
+```bash
+uv run mypy
+```
 
-## Safety Notes
+运行测试并统计覆盖率：
 
-- This project is designed for local development.
-- The `bash` tool executes shell commands with `subprocess.run(..., shell=True)` in the current workspace. It has a small denylist for some dangerous commands, but it is not a complete sandbox.
-- Do not expose the current web app or agent API to the public internet.
-- The file tools use `safe_path()` so paths must stay inside the workspace resolved from `Path.cwd()`.
-- `write_file` and `edit_file` can modify files inside the workspace.
-- The web conversation history is stored in process memory and is shared by the running Django process.
-- Django currently runs with development settings such as `DEBUG = True` and empty `ALLOWED_HOSTS`.
+```bash
+uv run coverage erase
+uv run coverage run config/manage.py test chat
+uv run coverage report -m
+```
 
-## Current Limitations
+生成 HTML 覆盖率报告：
 
-- No database-backed chat or tool history storage. Django has a default SQLite configuration, but the chat history is not persisted in database models.
-- No RAG implementation.
-- No embedding pipeline.
-- No vector database integration.
-- No Docker setup.
-- No streaming output from the model or web API.
-- No user account system or per-user conversation isolation.
-- No implemented tool trace visualization in the active API flow.
-- No complete automated test suite.
-- The `bash` tool is suitable only for trusted local development environments.
+```bash
+uv run coverage html
+```
 
-## Roadmap
+报告位于 `htmlcov/index.html`。
 
-- Add database-backed conversation and tool-call persistence.
-- Add RAG support.
-- Add embedding generation and indexing.
-- Add vector database integration.
-- Add Docker support for local deployment.
-- Add streaming responses for the web UI and JSON API.
-- Add user accounts and per-user session isolation.
-- Add tool trace visualization for tool calls and results.
-- Expand automated test coverage.
+全量运行 pre-commit：
+
+```bash
+uv run pre-commit run --all-files
+```
+
+为当前 clone 安装 Git hook：
+
+```bash
+uv run pre-commit install
+```
+
+安装后，`git commit` 会自动执行 Ruff 和 mypy。hook 如果自动修改了文件，本次提交会停止；检查修改、重新暂存后再次提交即可。
+
+## 环境变量
+
+- `MODEL_ID`：必填，传给 Anthropic Messages API 的模型名称
+- `ANTHROPIC_API_KEY`：正常使用 Anthropic API 时必填
+- `ANTHROPIC_BASE_URL`：可选，自定义 Anthropic 兼容接口地址
+
+环境变量通过 `python-dotenv` 从 `.env` 加载。不要提交包含真实密钥的 `.env`。
+
+## 安全说明
+
+- 项目仅面向可信的本地开发环境。
+- `bash` 工具通过 `subprocess.run(..., shell=True)` 执行命令。当前 denylist 不是完整沙箱。
+- 不要把当前 Web 应用或智能体接口直接暴露到公网。
+- 文件工具通过 `safe_path()` 限制路径必须位于当前工作区。
+- `write_file` 和 `edit_file` 可以修改工作区内的文件。
+- Web 会话历史存储在进程内存中，并由当前 Django 进程共享。
+- Django 当前使用 `DEBUG = True` 等开发配置。
+
+## 当前限制
+
+- 聊天和工具调用历史没有持久化到数据库。
+- 没有流式模型输出。
+- 没有用户账号和按用户隔离的会话。
+- 没有完整的工具调用轨迹可视化。
+- 尚未配置远程 CI。
+- `bash` 工具仅适用于可信环境。
+
+## 路线图
+
+- 添加数据库会话和工具调用持久化
+- 添加流式 Web 和 API 响应
+- 添加用户账号和会话隔离
+- 添加工具调用轨迹可视化
+- 添加 GitHub Actions 持续集成
+- 继续扩展关键分支的测试覆盖率

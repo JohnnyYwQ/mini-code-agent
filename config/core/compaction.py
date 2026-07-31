@@ -71,11 +71,9 @@ class ContextCompactor:
         results = self._collect_tool_results(messages)
         if len(results) <= self.keep_recent:
             return messages
-        for _, _, block in results[:-self.keep_recent]:
+        for _, _, block in results[: -self.keep_recent]:
             if len(block.get("content", "")) > 120:
-                block["content"] = (
-                    "[Earlier tool result compacted, rerun if needed]"
-                )
+                block["content"] = "[Earlier tool result compacted, rerun if needed]"
         return messages
 
     def _tool_result_budget(self, messages: list[dict]) -> list[dict]:
@@ -104,10 +102,12 @@ class ContextCompactor:
         for block in ranked:
             if total <= self.max_tool_result_chars:
                 break
-            block["content"] = self._persist_large_output(
-                block.get("tool_use_id"),
-                block.get("content", ""),
-            )
+
+            tool_use_id = str(block.get("tool_use_id")) or "unknown"
+            content = block.get("content")
+            output = "" if content is None else str(content)
+
+            block["content"] = self._persist_large_output(tool_use_id, output)
             total = sum(len(str(item.get("content", ""))) for item in blocks)
         return messages
 
@@ -178,7 +178,6 @@ class ContextCompactor:
             "Summarize this coding-agent conversation so work can continue.\n"
             "Preserve: 1. current goal, 2. key findings/decisions, "
             "3. file read/changed, 4. remaining work, 5. user constrains\n"
-            "Be compact but concret"
-            + conversation
+            "Be compact but concret" + conversation
         )
         return self.summarize(prompt)
