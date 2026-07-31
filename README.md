@@ -52,6 +52,7 @@ Mini Code Agent 是一个用于学习和本地开发的小型 Django 编码智�
 ├── .skills/
 │   └── code-review/
 │       └── SKILL.md
+├── LICENSE
 ├── pyproject.toml
 ├── requirements.txt
 ├── uv.lock
@@ -254,3 +255,7 @@ GitHub Actions 会在 push、pull request 或手动触发时，使用 Python 3.1
 - 添加用户账号和会话隔离
 - 添加工具调用轨迹可视化
 - 继续扩展关键分支的测试覆盖率
+
+## 许可证
+
+本项目采用 [MIT License](LICENSE)。

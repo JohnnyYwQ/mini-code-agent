@@ -52,6 +52,7 @@ The agent can invoke local tools, observe their results, and continue the conver
 ├── .skills/
 │   └── code-review/
 │       └── SKILL.md
+├── LICENSE
 ├── pyproject.toml
 ├── requirements.txt
 ├── uv.lock
@@ -254,3 +255,7 @@ Environment variables are loaded from `.env` through `python-dotenv`. Never comm
 - Add user accounts and session isolation
 - Add tool-call trace visualization
 - Continue expanding test coverage for important branches
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

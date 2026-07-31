@@ -3,6 +3,7 @@ name = "mini-code-agent"
 version = "0.1.0"
 description = "A minimal coding agent"
 readme = "README.md"
+license = "MIT"
 requires-python = ">=3.13"
 dependencies = [
     "anthropic>=0.45",
