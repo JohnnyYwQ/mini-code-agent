@@ -9,7 +9,7 @@ os.environ.setdefault("MODEL_ID", "test-model")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-api-key")
 
 from core.agent import agent_loop, validate_anthropic_config
-from core.compaction import ContextCompactor
+from core.compaction import CompactionConfig, ContextCompactor
 from core.todo import TodoManager
 
 
@@ -37,7 +37,7 @@ class AgentLoopIntegrationTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=root / "tool-results",
                 summarize=lambda prompt: prompts.append(prompt) or "summary",
-                context_limit=100_000,
+                config=CompactionConfig(context_limit=100_000),
             )
             with (
                 patch("core.agent.CONTEXT_COMPACTOR", compactor),
@@ -103,7 +103,7 @@ class AgentLoopIntegrationTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=root / "tool-results",
                 summarize=lambda prompt: "summary",
-                context_limit=100_000,
+                config=CompactionConfig(context_limit=100_000),
             )
             with (
                 patch("core.agent.CONTEXT_COMPACTOR", compactor),
@@ -162,7 +162,7 @@ class AgentLoopIntegrationTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=root / "tool-results",
                 summarize=lambda prompt: "summary",
-                context_limit=100_000,
+                config=CompactionConfig(context_limit=100_000),
             )
             with (
                 patch("core.agent.WORKDIR", workspace),
@@ -217,7 +217,7 @@ class AgentLoopIntegrationTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=root / "tool-results",
                 summarize=lambda prompt: "summary",
-                context_limit=100_000,
+                config=CompactionConfig(context_limit=100_000),
             )
             with patch("core.agent.CONTEXT_COMPACTOR", compactor):
                 with self.assertRaisesRegex(
@@ -268,7 +268,7 @@ class AnthropicConfigTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=root / "tool-results",
                 summarize=lambda prompt: "summary",
-                context_limit=100_000,
+                config=CompactionConfig(context_limit=100_000),
             )
             with patch("core.agent.CONTEXT_COMPACTOR", compactor):
                 with self.assertRaisesRegex(

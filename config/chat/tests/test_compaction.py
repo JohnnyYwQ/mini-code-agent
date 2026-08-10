@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import TestCase
 
-from core.compaction import ContextCompactor
+from core.compaction import CompactionConfig, ContextCompactor
 
 
 def assistant_tool_use(tool_use_id: str) -> dict:
@@ -54,8 +54,10 @@ class ContextCompactorTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=root / "tool-results",
                 summarize=lambda prompt: "summary",
-                keep_recent=1,
-                context_limit=100_000,
+                config=CompactionConfig(
+                    keep_recent=1,
+                    context_limit=100_000,
+                ),
             )
 
             prepared = compactor.prepare_for_model(messages)
@@ -90,9 +92,11 @@ class ContextCompactorTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=tool_results_dir,
                 summarize=lambda prompt: "summary",
-                persist_threshold=50,
-                max_tool_result_chars=100,
-                context_limit=100_000,
+                config=CompactionConfig(
+                    persist_threshold=50,
+                    max_tool_result_chars=100,
+                    context_limit=100_000,
+                ),
             )
 
             prepared = compactor.prepare_for_model(messages)
@@ -120,7 +124,7 @@ class ContextCompactorTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=root / "tool-results",
                 summarize=summarize,
-                context_limit=1,
+                config=CompactionConfig(context_limit=1),
             )
 
             prepared = compactor.prepare_for_model(
@@ -178,8 +182,10 @@ class ContextCompactorTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=root / "tool-results",
                 summarize=lambda prompt: "summary",
-                max_messages=6,
-                context_limit=100_000,
+                config=CompactionConfig(
+                    max_messages=6,
+                    context_limit=100_000,
+                ),
             )
 
             prepared = compactor.prepare_for_model(messages)

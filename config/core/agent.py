@@ -1,12 +1,3 @@
-"""
-Agent with tools:
-    bash
-    read
-    write
-    edit
-    todo
-"""
-
 import os
 import subprocess
 from collections.abc import Callable
