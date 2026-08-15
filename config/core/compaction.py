@@ -23,6 +23,12 @@ class CompactionConfig:
 DEFAULT_COMPACTION_CONFIG = CompactionConfig()
 
 
+def _block_type(block: object) -> object:
+    if isinstance(block, dict):
+        return block.get("type")
+    return getattr(block, "type", None)
+
+
 class ContextCompactor:
     """Persist and compact conversation history before model calls."""
 
@@ -159,13 +165,13 @@ class ContextCompactor:
     def _can_snip(message: dict) -> bool:
         if message.get("role") == "assistant":
             for block in message.get("content", []):
-                if "tool_use" in block.type:
+                if _block_type(block) == "tool_use":
                     return False
         if message.get("role") == "user":
             content = message.get("content")
             if isinstance(content, list):
                 for block in content:
-                    if "tool_result" in block.get("type"):
+                    if _block_type(block) == "tool_result":
                         return False
         return True
 

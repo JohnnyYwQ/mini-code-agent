@@ -4,7 +4,7 @@
 
 ## Overview
 
-Mini Code Agent is a small Django-based coding agent for learning and local development. It provides a web chat interface, a JSON chat API, and a command-line entry point, and calls the Claude Messages API through the Anthropic Python SDK.
+Mini Code Agent 0.2 is a small Django-based coding agent for learning and local development. It provides resumable Web and CLI Conversations, a JSON chat API, workspace-bound Agent Runtimes, and calls the Claude Messages API through the Anthropic Python SDK.
 
 The agent can invoke local tools, observe their results, and continue the conversation until the model returns a final response. The project is intended for trusted local development environments and is not ready for direct public production deployment.
 
@@ -12,6 +12,11 @@ The agent can invoke local tools, observe their results, and continue the conver
 
 - Django web chat interface at `/`
 - JSON chat endpoint at `/api/chat/`
+- Database-backed Conversations with complete top-level tool messages
+- A Web sidebar grouped by workspace with cross-workspace resume
+- CLI creation by default plus list/resume within the launch workspace
+- One shared, non-login Django local User for Web and CLI
+- User/Space Memory with automatic per-Turn recall and a no-argument `remember` tool
 - Anthropic Messages API agent loop using `tool_use` and `tool_result`
 - Local tools:
   - `bash`: run shell commands in the workspace
@@ -63,6 +68,9 @@ The agent can invoke local tools, observe their results, and continue the conver
     │   ├── asgi.py
     │   └── wsgi.py
     ├── chat/
+    │   ├── application.py
+    │   ├── composition.py
+    │   ├── models.py
     │   ├── tests/
     │   ├── templates/chat/index.html
     │   ├── static/chat/
@@ -70,7 +78,9 @@ The agent can invoke local tools, observe their results, and continue the conver
     │   └── views.py
     └── core/
         ├── agent.py
+        ├── agent_runtime.py
         ├── compaction.py
+        ├── memory/
         ├── frontmatter.py
         ├── skills.py
         └── todo.py
@@ -78,7 +88,11 @@ The agent can invoke local tools, observe their results, and continue the conver
 
 Key files:
 
-- `config/core/agent.py`: Anthropic client setup, the agent loop, tool definitions, tool handlers, hooks, and the CLI entry point
+- `config/core/agent.py`: tool definitions, hooks, and the CLI entry point
+- `config/core/agent_runtime.py`: Conversation-workspace agent loop, Memory recall, and the `remember` tool
+- `config/core/memory/`: Memory extraction, hybrid retrieval, Qdrant adapter, and production composition
+- `config/chat/application.py`: trusted User, Memory Space, Conversation, transcript, and Turn orchestration
+- `config/chat/composition.py`: shared Web/CLI Agent Runtime and Memory composition
 - `config/core/compaction.py`: transcript snapshots, tool-result trimming, and context compaction
 - `config/core/frontmatter.py`: YAML frontmatter parsing for `SKILL.md`
 - `config/core/skills.py`: skill discovery, registration, and loading
@@ -93,16 +107,13 @@ Key files:
 
 ## How It Works
 
-1. A user submits a message through the web UI, JSON API, or CLI.
-2. The `UserPromptSubmit` hook runs before the message reaches the model.
-3. The context compactor snapshots the current conversation and trims or compacts history when necessary.
-4. `agent_loop()` calls the Anthropic Messages API.
-5. If the model returns `tool_use`, the corresponding local handler runs after hook checks.
-6. Tool output is appended to message history as `tool_result`.
-7. The loop continues until the model returns a non-tool final response.
-8. The web API returns JSON, while the CLI prints the final text to the terminal.
-
-The web entry point currently uses the process-level `AGENT_HISTORY` list in `config/chat/views.py`. The CLI uses a local `history` list in `config/core/agent.py`.
+1. Web or CLI selects/creates a Conversation; the application derives its trusted local User, Memory Space, and workspace.
+2. The user message is persisted before the agent runs and remains unanswered if the run fails.
+3. Each Turn recalls User Memory and current Space Memory into ephemeral system context.
+4. A Conversation-bound Agent Runtime runs files, shell, skills, todo, and compaction in the selected workspace.
+5. The model may call the no-argument `remember` tool over visible text from up to five completed Turns plus the current Turn.
+6. After success, generated assistant/tool-result messages are persisted as one ordered batch; partial generated transcripts are discarded on failure.
+7. Web and CLI reload Conversations from the database, so process restarts preserve history.
 
 ## Quick Start
 
@@ -126,6 +137,13 @@ Edit `.env`:
 MODEL_ID=your_model_id
 ANTHROPIC_API_KEY=your_api_key
 # ANTHROPIC_BASE_URL=
+# MEMORY_QDRANT_LOCATION=/absolute/path/to/qdrant
+```
+
+Create the database tables:
+
+```bash
+uv run python config/manage.py migrate
 ```
 
 Run Django:
@@ -146,7 +164,24 @@ Run the CLI:
 uv run python config/core/agent.py
 ```
 
+The CLI creates a new Conversation by default. List or resume Conversations from the current workspace with:
+
+```bash
+uv run python config/core/agent.py --list
+uv run python config/core/agent.py --resume <conversation-uuid>
+```
+
 Exit the CLI with `q`, `exit`, an empty line, `Ctrl-C`, or EOF.
+
+To operate on another directory while still using this project's environment, run the CLI from the target workspace:
+
+```bash
+cd /path/to/workspace
+uv run --project /path/to/mini-code-agent \
+  python /path/to/mini-code-agent/config/core/agent.py
+```
+
+The Conversation and Memory Space bind to the current workspace where the command runs, while dependencies still come from the `mini-code-agent` project.
 
 ## Calling the JSON API
 
@@ -165,7 +200,7 @@ curl -X POST http://127.0.0.1:8000/api/chat/ \
   -b cookies.txt \
   -H "Content-Type: application/json" \
   -H "X-CSRFToken: <csrftoken-from-cookies.txt>" \
-  -d '{"message":"hello"}'
+  -d '{"conversation_id":"<conversation-uuid>","message":"hello"}'
 ```
 
 ## Development Checks
@@ -173,7 +208,7 @@ curl -X POST http://127.0.0.1:8000/api/chat/ \
 Run the test suite:
 
 ```bash
-uv run python config/manage.py test chat
+uv run python config/manage.py test chat tests.memory
 ```
 
 Run Ruff:
@@ -193,7 +228,7 @@ Run the tests with coverage:
 
 ```bash
 uv run coverage erase
-uv run coverage run config/manage.py test chat
+uv run coverage run config/manage.py test chat tests.memory
 uv run coverage report -m
 ```
 
@@ -226,6 +261,9 @@ GitHub Actions repeats the formatting check, lint, mypy, test, and coverage-repo
 - `MODEL_ID`: required; the model name passed to the Anthropic Messages API
 - `ANTHROPIC_API_KEY`: required for normal Anthropic API usage
 - `ANTHROPIC_BASE_URL`: optional; a custom Anthropic-compatible API base URL
+- `MEMORY_QDRANT_LOCATION`: optional local Qdrant path or complete `http(s)://` service URL; defaults to `~/.mini-code-agent/qdrant`
+- `MEMORY_QDRANT_COLLECTION`: optional Memory collection name
+- `MEMORY_MAX_TOKENS`: optional Memory extraction output limit
 
 Environment variables are loaded from `.env` through `python-dotenv`. Never commit an `.env` file containing real credentials.
 
@@ -236,23 +274,25 @@ Environment variables are loaded from `.env` through `python-dotenv`. Never comm
 - Do not expose the current web app or agent API directly to the public internet.
 - File tools use `safe_path()` to keep resolved paths inside the current workspace.
 - `write_file` and `edit_file` can modify files inside the workspace.
-- Web conversation history is kept in process memory and shared by the current Django process.
+- Version 0.2 is trusted local single-user software: it has no login, tokens, or multi-user isolation and must not be exposed publicly.
+- Embedded Qdrant is best used by one process; configure a shared Qdrant service URL when Web and CLI run concurrently.
+- For a Qdrant service on the local machine, use a complete URL and configure `NO_PROXY` so loopback traffic bypasses the system proxy.
 - Django currently uses development settings such as `DEBUG = True`.
 
 ## Current Limitations
 
-- Chat and tool-call history are not persisted to the database.
 - Model responses are not streamed.
-- There are no user accounts or per-user conversation isolation.
+- There is no login, multi-user support, or remote-deployment authentication.
+- Memory UPDATE/DELETE, MemoryEvent integration, and automatic index recovery are not complete.
 - There is no complete tool-call trace visualization.
 - The `bash` tool is suitable only for trusted environments.
 
 ## Roadmap
 
-- Add database-backed conversation and tool-call persistence
 - Add streaming web and API responses
-- Add user accounts and session isolation
+- Add authentication and multi-user isolation when remote deployment is needed
 - Add tool-call trace visualization
+- Complete the Memory lifecycle and index recovery
 - Continue expanding test coverage for important branches
 
 ## License

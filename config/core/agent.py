@@ -4,21 +4,12 @@ from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import urlparse
 
-from anthropic import Anthropic
 from anthropic.types import ToolParam
 from dotenv import load_dotenv
 from prompt_toolkit import PromptSession
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
+from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
-
-if __package__:
-    from .compaction import ContextCompactor
-    from .skills import SkillManager
-    from .todo import TodoManager
-else:
-    from compaction import ContextCompactor
-    from skills import SkillManager
-    from todo import TodoManager
 
 load_dotenv(override=True)
 
@@ -26,22 +17,9 @@ if os.getenv("ANTHROPIC_BASE_URL"):
     os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 WORKDIR = Path.cwd()
-client = Anthropic(base_url=os.getenv("ANTHROPIC_BASE_URL"))
-MODEL: str = os.getenv("MODEL_ID", "")
-API_KEY: str = os.getenv("ANTHROPIC_API_KEY", "")
-BASE_URL = os.getenv("ANTHROPIC_BASE_URL")
 
 
 MAX_ROUNDS = 500
-
-
-def validate_anthropic_config():
-    if not MODEL:
-        raise RuntimeError("MODEL_ID is required")
-    if not API_KEY:
-        raise RuntimeError("ANTHROPIC_API_KEY is required")
-    if BASE_URL and not valid_http_url(BASE_URL):
-        raise RuntimeError("ANTHROPIC_BASE_URL must be a valid http(s) URL")
 
 
 def valid_http_url(url: str) -> bool:
@@ -57,31 +35,10 @@ session = PromptSession[str](
     auto_suggest=AutoSuggestFromHistory(),
     enable_history_search=True,
 )
-
-SKILL_DIR = WORKDIR / ".skills"
-
-
-def request_compaction_summary(prompt: str) -> str:
-    """Ask the configured model to summarize a serialized history."""
-    response = client.messages.create(
-        model=MODEL,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=2000,
-    )
-    return (
-        "".join(block.text for block in response.content if hasattr(block, "text"))
-        or "empty summary"
-    )
+CLI_PROMPT = ANSI("\033[36mmini-code-agent >> \033[0m")
 
 
-CONTEXT_COMPACTOR = ContextCompactor(
-    transcript_dir=WORKDIR / ".transcription",
-    tool_results_dir=WORKDIR / ".tool_result",
-    summarize=request_compaction_summary,
-)
-
-
-def safe_path(p: str) -> Path:
+def safe_path(p: str, *, workspace: Path | None = None) -> Path:
     """
     transform string path to Path path.
 
@@ -89,14 +46,14 @@ def safe_path(p: str) -> Path:
 
     get str as input Path as output
     """
-    workspace = WORKDIR.resolve()
-    path = (workspace / p).resolve()
-    if not path.is_relative_to(workspace):
+    workspace_root = (workspace or WORKDIR).resolve()
+    path = (workspace_root / p).resolve()
+    if not path.is_relative_to(workspace_root):
         raise ValueError(f"Path eacaped workspace: {path}")
     return path
 
 
-def run_bash(command: str) -> str:
+def run_bash(command: str, *, workspace: Path | None = None) -> str:
     """
     run bash command in shell by subprocess.
 
@@ -115,7 +72,7 @@ def run_bash(command: str) -> str:
             capture_output=True,
             text=True,
             timeout=120,
-            cwd=WORKDIR,
+            cwd=workspace or WORKDIR,
         )
         out = str(r.stdout + r.stderr).strip()
         return out
@@ -123,7 +80,12 @@ def run_bash(command: str) -> str:
         return "Error: Timeout(120)"
 
 
-def run_read(path: str, limit: int = 10) -> str:
+def run_read(
+    path: str,
+    limit: int = 10,
+    *,
+    workspace: Path | None = None,
+) -> str:
     """
     read file content in workspace.
 
@@ -136,7 +98,7 @@ def run_read(path: str, limit: int = 10) -> str:
 
     path and limit lines as input, file content as output
     """
-    f = safe_path(path)
+    f = safe_path(path, workspace=workspace)
     if not f.exists():
         raise ValueError(f"File not found {path}")
     if not f.is_file():
@@ -149,7 +111,12 @@ def run_read(path: str, limit: int = 10) -> str:
     return "\n".join(lines)
 
 
-def run_write(path: str, text: str) -> str:
+def run_write(
+    path: str,
+    text: str,
+    *,
+    workspace: Path | None = None,
+) -> str:
     """
     write text in file.
 
@@ -158,7 +125,7 @@ def run_write(path: str, text: str) -> str:
     path and text as input, str of done or not as output
     """
     try:
-        f = safe_path(path)
+        f = safe_path(path, workspace=workspace)
 
         f.parent.mkdir(exist_ok=True, parents=True)
 
@@ -169,7 +136,13 @@ def run_write(path: str, text: str) -> str:
         return f"Error: {e}"
 
 
-def run_edit(path: str, old_text: str, new_text: str) -> str:
+def run_edit(
+    path: str,
+    old_text: str,
+    new_text: str,
+    *,
+    workspace: Path | None = None,
+) -> str:
     """
     edit file content: replace old text by new text
 
@@ -178,7 +151,7 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
     path, old_text, new_text as input, edit result as output
     """
     try:
-        f = safe_path(path)
+        f = safe_path(path, workspace=workspace)
         if not f.exists():
             raise ValueError(f"file not found: {path}.")
 
@@ -198,58 +171,18 @@ def run_edit(path: str, old_text: str, new_text: str) -> str:
         return f"Error: {e}."
 
 
-def run_glob(pattern: str) -> str:
+def run_glob(pattern: str, *, workspace: Path | None = None) -> str:
     import glob as g
 
     try:
-        workspace = WORKDIR.resolve()
+        workspace_root = (workspace or WORKDIR).resolve()
         results = []
-        for match in g.glob(pattern, root_dir=workspace, recursive=True):
-            if (workspace / match).resolve().is_relative_to(workspace):
+        for match in g.glob(pattern, root_dir=workspace_root, recursive=True):
+            if (workspace_root / match).resolve().is_relative_to(workspace_root):
                 results.append(match)
         return "\n".join(results) if results else "(no matches)"
     except Exception as e:
         return f"Error: {e}"
-
-
-def print_extract_text(messages_content):
-    """
-    get text from assistant response
-    """
-    if not isinstance(messages_content, list):
-        return str(messages_content)
-    text = "\n".join(
-        block.text
-        for block in messages_content
-        if getattr(block, "type", None) == "text"
-    )
-    return text
-
-
-TODO = TodoManager()
-SKILL = SkillManager(SKILL_DIR)
-
-
-def build_system() -> str:
-    catalog = SKILL.list_skills()
-    return (
-        f"You are a coding agent at {WORKDIR}. "
-        f"Skills available:\n{catalog}\n"
-        "Use load_skill to get full details when needed."
-    )
-
-
-SYSTEM = build_system()
-
-TOOL_HANDLERS = {
-    "bash": lambda **kw: run_bash(kw["command"]),
-    "read_file": lambda **kw: run_read(kw["path"], kw.get("limit", 10)),
-    "write_file": lambda **kw: run_write(kw["path"], kw["text"]),
-    "edit_file": lambda **kw: run_edit(kw["path"], kw["old_text"], kw["new_text"]),
-    "glob": lambda **kw: run_glob(kw["pattern"]),
-    "todo": lambda **kw: TODO.update(kw["items"]),
-    "load_skill": lambda **kw: SKILL.load_skill(kw["name"]),
-}
 
 
 TOOLS: list[ToolParam] = [
@@ -350,37 +283,17 @@ TOOLS: list[ToolParam] = [
 ]
 
 
-# ═══════════════════════════════════════════════════════════
-#  Hook System
-# ═══════════════════════════════════════════════════════════
-HookCallback = Callable[..., object | None]
-
-HOOKS: dict[str, list[HookCallback]] = {
-    "UserPromptSubmit": [],
-    "PreToolUse": [],
-    "PostToolUse": [],
-    "Stop": [],
-}
-
-
-def register_hook(event: str, callback: HookCallback) -> None:
-    HOOKS[event].append(callback)
-
-
-def trigger_hooks(event: str, *args: object) -> object | None:
-    for callback in HOOKS[event]:
-        result = callback(*args)
-        if result is not None:
-            return result
-    return None
-
-
 # permission check
 DENY_LIST = ["rm -rf /", "sudo", "shutdown", "reboot", "mkfs", "dd if"]
 DESTRUCTIVE = ["rm ", "> /etc/", "chmod 777"]
 
 
-def permission_hook(block):
+def permission_hook(
+    block,
+    *,
+    workspace: Path | None = None,
+    confirm_destructive: Callable[[object], bool] | None = None,
+):
     """PreToolUse: s03 check_permission() logic moved here."""
     if block.name == "bash":
         for pattern in DENY_LIST:
@@ -391,13 +304,17 @@ def permission_hook(block):
             if kw in block.input.get("command", ""):
                 print("\n\033[33m⚠  Potentially destructive command\033[0m")
                 print(f"   Tool: {block.name}({block.input})")
-                choice = input("   Allow? [y/N] ").strip().lower()
-                if choice not in ("y", "yes"):
+                allowed = (
+                    confirm_destructive(block)
+                    if confirm_destructive is not None
+                    else input("   Allow? [y/N] ").strip().lower() in ("y", "yes")
+                )
+                if not allowed:
                     return "Permission denied by user"
     if block.name in ("write_file", "edit_file"):
         path = block.input.get("path", "")
         try:
-            safe_path(path)
+            safe_path(path, workspace=workspace)
         except ValueError:
             return "Permission denied: path outside workspace"
     return None
@@ -419,12 +336,6 @@ def large_output_hook(block, output):
     return None
 
 
-# UserPromptSubmit hook: log user input before it reaches the LLM
-def context_inject_hook(query: str):
-    print(f"\033[90m[HOOK] UserPromptSubmit: working in {WORKDIR}\033[0m")
-    return None
-
-
 # Stop hook: print summary when loop is about to exit
 def summary_hook(messages: list):
     tool_count = sum(
@@ -437,123 +348,81 @@ def summary_hook(messages: list):
     return None
 
 
-register_hook("UserPromptSubmit", context_inject_hook)
-register_hook("PreToolUse", permission_hook)
-register_hook("PreToolUse", log_hook)
-register_hook("PostToolUse", large_output_hook)
-register_hook("Stop", summary_hook)
-
-
-def agent_loop(messages: list):
-    """
-    Run the agent until stop using tool.
-
-    set max round 500, raise runtime error if exceeded.
-
-    Each loop:
-    - call the model with the current messages
-    - append the assistant response to message
-    - execute any tool_use block returned by the model
-    - manually calling todo reminder if didn't call it in 3 round
-    - append tool_results block as new user message
-    - continue so the model can observe tool results
-
-    The messages list is mutated in place.
-    """
-    rounds_since_todo = 0
-    validate_anthropic_config()
-    for _ in range(MAX_ROUNDS):
-        messages[:] = CONTEXT_COMPACTOR.prepare_for_model(messages)
-        try:
-            response = client.messages.create(
-                model=MODEL,
-                system=SYSTEM,
-                tools=TOOLS,
-                messages=messages,
-                max_tokens=8000,
-            )
-        except Exception as e:
-            raise RuntimeError(
-                "Anthropic API request failed. Check MODEL_ID, ANTHROPIC_API_KEY, ANTHROPIC_BASE_URL, network, and model access."
-            ) from e
-
-        messages.append({"role": "assistant", "content": response.content})
-        if response.stop_reason != "tool_use":
-            force = trigger_hooks("Stop", messages)
-            if force:
-                messages.append({"role": "user", "content": str(force)})
-                continue
-            return
-
-        used_todo = False
-        tool_results = []
-        for block in response.content:
-            if block.type != "tool_use":
-                continue
-            blocked = trigger_hooks("PreToolUse", block)
-            if blocked:
-                tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": str(blocked),
-                    }
-                )
-                continue
-            if block.name == "compact":
-                messages[:] = CONTEXT_COMPACTOR.compact_history(messages[:-1])
-                messages.append({"role": "assistant", "content": response.content})
-                tool_results.append(
-                    {
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": "[Compacted]. Conversation history has been summaried.",
-                    }
-                )
-                continue
-
-            handler = TOOL_HANDLERS.get(block.name)
-            try:
-                output = (
-                    handler(**block.input) if handler else f"Unknown tool: {block.name}"
-                )
-            except Exception as e:
-                output = f"Error: {e}"
-            trigger_hooks("PostToolUse", block, output)
-            tool_results.append(
-                {"type": "tool_result", "tool_use_id": block.id, "content": str(output)}
-            )
-            if block.name == "todo":
-                used_todo = True
-        rounds_since_todo = 0 if used_todo else rounds_since_todo + 1
-        if rounds_since_todo >= 3:
-            tool_results.append(
-                {"type": "text", "text": "<reminder>Update your todos</reminder>"}
-            )
-        messages.append({"role": "user", "content": tool_results})
-    raise RuntimeError(f"Agent exceeded max rounds: {MAX_ROUNDS}")
-
-
 if __name__ == "__main__":
-    """
-    whole agent service's entry which is a loop for multiple turn chat
+    import argparse
+    import sys
+    from uuid import UUID
 
-    certain user input can break the loop
-    """
-    history = []
-    while True:
+    import django  # type: ignore[import-untyped]
+
+    django_root = Path(__file__).resolve().parents[1]
+    if str(django_root) not in sys.path:
+        sys.path.insert(0, str(django_root))
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+    django.setup()
+
+    from chat.application import (
+        ConversationNotFoundError,
+        list_conversations,
+        resume_conversation,
+        run_conversation_turn,
+        start_conversation,
+    )
+    from chat.composition import build_cli_runner, close_production_memory
+
+    parser = argparse.ArgumentParser(description="Mini Code Agent CLI")
+    parser.add_argument(
+        "--list",
+        action="store_true",
+        help="list resumable Conversations in the current workspace",
+    )
+    parser.add_argument(
+        "--resume",
+        metavar="CONVERSATION_ID",
+        help="resume a Conversation from the current workspace",
+    )
+    args = parser.parse_args()
+    cli_workspace = Path.cwd().resolve()
+
+    if args.list:
+        conversations = list_conversations(workspace_path=cli_workspace)
+        if not conversations:
+            print("No Conversations in this workspace.")
+        for conversation in conversations:
+            print(f"{conversation.id}  {conversation.title}")
+        raise SystemExit(0)
+
+    if args.resume:
         try:
-            query = session.prompt(
-                "\033[36mmini-code-agent >> \033[0m",
+            resume_id = UUID(args.resume)
+            conversation = resume_conversation(
+                conversation_id=resume_id,
+                workspace_path=cli_workspace,
             )
-        except (KeyboardInterrupt, EOFError):
-            break
-        if query.strip().lower() in ("q", "", "exit"):
-            break
-        trigger_hooks("UserPromptSubmit", query)
-        history.append({"role": "user", "content": query})
-        agent_loop(history)
-        # Print the model's final text response
-        response_content = history[-1]["content"]
-        print_extract_text(response_content)
-        print()
+        except (ValueError, ConversationNotFoundError) as exc:
+            parser.error(str(exc))
+    else:
+        conversation = start_conversation(workspace_path=cli_workspace)
+
+    print(f"Conversation: {conversation.id}")
+    try:
+        while True:
+            try:
+                query = session.prompt(CLI_PROMPT)
+            except (KeyboardInterrupt, EOFError):
+                break
+            if query.strip().lower() in ("q", "", "exit"):
+                break
+            try:
+                result = run_conversation_turn(
+                    conversation_id=conversation.id,
+                    query=query,
+                    runner_factory=build_cli_runner,
+                )
+            except Exception as exc:
+                print(f"Error: {exc}")
+                continue
+            print(result.assistant_text)
+            print()
+    finally:
+        close_production_memory()

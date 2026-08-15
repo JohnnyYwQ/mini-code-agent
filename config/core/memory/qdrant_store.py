@@ -3,11 +3,53 @@ from typing import Any, Protocol
 
 from qdrant_client import QdrantClient, models
 
+from core.memory.vector_store import MemorySearchResult
+
 logger = logging.getLogger(__name__)
+
+
+def _build_query_filter(
+    filters: dict[str, str | int | bool | None] | None,
+) -> models.Filter | None:
+    if not filters:
+        return None
+
+    conditions: list[models.Condition] = []
+    for key, value in filters.items():
+        if value is None:
+            conditions.append(
+                models.IsEmptyCondition(
+                    is_empty=models.PayloadField(key=key),
+                )
+            )
+        else:
+            conditions.append(
+                models.FieldCondition(
+                    key=key,
+                    match=models.MatchValue(value=value),
+                )
+            )
+
+    return models.Filter(must=conditions)
+
+
+def _to_memory_search_result(point: models.ScoredPoint) -> MemorySearchResult:
+    payload = dict(point.payload or {})
+    data = payload.pop("data", "")
+    payload.pop("hash", None)
+    return MemorySearchResult(
+        id=str(point.id),
+        data=data,
+        scope="space" if "space_id" in payload else "user",
+        score=point.score,
+        metadata=payload,
+    )
 
 
 class BM25Encoder(Protocol):
     def encode_document(self, text: str) -> models.SparseVector | None: ...
+
+    def encode_query(self, text: str) -> models.SparseVector | None: ...
 
 
 class QdrantStore:
@@ -32,6 +74,9 @@ class QdrantStore:
         self.bm25_encoder = bm25_encoder
         self._has_bm25_slot = False
         self._ensure_collection()
+
+    def close(self) -> None:
+        self.client.close()
 
     def upsert(
         self,
@@ -74,6 +119,68 @@ class QdrantStore:
             points=[point],
             wait=True,
         )
+
+    def exists(
+        self,
+        *,
+        filters: dict[str, str | int | bool | None],
+    ) -> bool:
+        result = self.client.count(
+            collection_name=self.collection_name,
+            count_filter=_build_query_filter(filters),
+            exact=True,
+        )
+        return result.count > 0
+
+    def dense_search(
+        self,
+        *,
+        query_vector: list[float],
+        top_k: int = 5,
+        filters: dict[str, str | int | bool | None] | None = None,
+    ) -> list[MemorySearchResult]:
+        if len(query_vector) != self.dimension:
+            raise ValueError(
+                f"query vector dimension {len(query_vector)}, expected {self.dimension}"
+            )
+
+        response = self.client.query_points(
+            collection_name=self.collection_name,
+            query=query_vector,
+            query_filter=_build_query_filter(filters),
+            limit=top_k,
+        )
+        return [_to_memory_search_result(point) for point in response.points]
+
+    def keyword_search(
+        self,
+        *,
+        query: str,
+        top_k: int = 5,
+        filters: dict[str, str | int | bool | None] | None = None,
+    ) -> list[MemorySearchResult] | None:
+        if not self._has_bm25_slot or self.bm25_encoder is None:
+            return None
+
+        try:
+            sparse_query = self.bm25_encoder.encode_query(query)
+        except Exception:
+            logger.warning(
+                "BM25 query encoding failed; keyword search unavailable",
+                exc_info=True,
+            )
+            return None
+        if sparse_query is None:
+            return None
+
+        response = self.client.query_points(
+            collection_name=self.collection_name,
+            query=sparse_query,
+            using="bm25",
+            query_filter=_build_query_filter(filters),
+            limit=top_k,
+        )
+        return [_to_memory_search_result(point) for point in response.points]
 
     def _ensure_collection(self) -> None:
         if self.client.collection_exists(self.collection_name):

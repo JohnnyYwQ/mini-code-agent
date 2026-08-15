@@ -1,0 +1,3 @@
+# Bind the agent runtime to the Conversation workspace
+
+Selecting a Conversation in Web also selects its Memory Space and workspace path, and a continued Turn runs every file, shell, skill, compaction, transcript, and Memory operation against that workspace. Agent runtime state must therefore be constructed per selected Conversation rather than using a process-global working directory; CLI remains bound to the workspace from which it was launched. If a stored workspace path no longer exists, Web keeps the Conversation visible and its transcript readable but marks it unavailable and refuses new Turns or tool execution; automatic migration and rebinding remain deferred.

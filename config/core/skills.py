@@ -97,6 +97,8 @@ class SkillManager:
         skill = self.registry.get(name)
         if skill is None:
             return f"skill {name} not found in registry."
+        if not skill.reference and not skill.script:
+            return skill.content or ""
         return (
             f"Skill content: {skill.content}, reference: {skill.reference}, "
             f"script: {skill.script}."

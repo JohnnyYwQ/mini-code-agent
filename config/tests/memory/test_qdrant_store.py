@@ -331,6 +331,59 @@ class QdrantStoreUpsertTests(TestCase):
         self.assertEqual(records[0].payload, payload)
 
 
+class QdrantStoreDenseSearchTests(TestCase):
+    collection_name = "test_dense_search_memories"
+
+    def setUp(self):
+        self.client = QdrantClient(":memory:")
+        self.store = QdrantStore(
+            client=self.client,
+            collection_name=self.collection_name,
+            dimension=3,
+        )
+
+    def tearDown(self):
+        self.client.close()
+
+    def test_returns_nearest_dense_match(self):
+        related_memory_id = str(uuid.uuid4())
+        unrelated_memory_id = str(uuid.uuid4())
+        self.store.upsert(
+            memory_id=related_memory_id,
+            vector=[1.0, 0.0, 0.0],
+            payload={"data": "用户喜欢使用中文回答"},
+        )
+        self.store.upsert(
+            memory_id=unrelated_memory_id,
+            vector=[0.0, 1.0, 0.0],
+            payload={"data": "用户周末喜欢去公园跑步"},
+        )
+
+        results = self.store.dense_search(
+            query_vector=[1.0, 0.0, 0.0],
+            top_k=1,
+        )
+
+        self.assertEqual([point.id for point in results], [related_memory_id])
+        self.assertEqual(results[0].data, "用户喜欢使用中文回答")
+
+    def test_returns_empty_list_for_empty_collection(self):
+        results = self.store.dense_search(
+            query_vector=[1.0, 0.0, 0.0],
+        )
+
+        self.assertEqual(results, [])
+
+    def test_rejects_query_vector_with_wrong_dimension(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "query vector dimension 2, expected 3",
+        ):
+            self.store.dense_search(
+                query_vector=[1.0, 0.0],
+            )
+
+
 class QdrantStoreKeywordSearchTests(TestCase):
     collection_name = "test_keyword_memories"
 
@@ -377,4 +430,173 @@ class QdrantStoreKeywordSearchTests(TestCase):
         self.assertIsNotNone(results)
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0].id, memory_id)
-        self.assertEqual(results[0].payload, payload)
+        self.assertEqual(results[0].data, "我喜欢中文回答")
+        self.assertEqual(results[0].metadata, {"user_id": "u1"})
+
+    def test_returns_none_and_logs_warning_when_query_encoding_fails(self):
+        class BrokenBM25Encoder:
+            def encode_document(self, text):
+                return models.SparseVector(indices=[10], values=[1.0])
+
+            def encode_query(self, text):
+                raise RuntimeError("BM25 query encoding failed")
+
+        store = QdrantStore(
+            client=self.client,
+            collection_name=self.collection_name,
+            dimension=3,
+            bm25_encoder=BrokenBM25Encoder(),
+        )
+
+        with self.assertLogs("core.memory.qdrant_store", level="WARNING") as logs:
+            results = store.keyword_search(query="中文")
+
+        self.assertIsNone(results)
+        self.assertIn("BM25 query encoding failed", "\n".join(logs.output))
+
+    def test_returns_none_without_encoding_for_dense_only_collection(self):
+        self.client.create_collection(
+            collection_name=self.collection_name,
+            vectors_config=models.VectorParams(
+                size=3,
+                distance=models.Distance.COSINE,
+            ),
+        )
+        encoded_queries = []
+
+        class FakeBM25Encoder:
+            def encode_document(self, text):
+                return models.SparseVector(indices=[10], values=[1.0])
+
+            def encode_query(self, text):
+                encoded_queries.append(text)
+                return models.SparseVector(indices=[10], values=[1.0])
+
+        store = QdrantStore(
+            client=self.client,
+            collection_name=self.collection_name,
+            dimension=3,
+            bm25_encoder=FakeBM25Encoder(),
+        )
+
+        results = store.keyword_search(query="中文")
+
+        self.assertIsNone(results)
+        self.assertEqual(encoded_queries, [])
+
+    def test_returns_none_when_bm25_encoder_is_not_configured(self):
+        store = QdrantStore(
+            client=self.client,
+            collection_name=self.collection_name,
+            dimension=3,
+        )
+
+        results = store.keyword_search(query="中文")
+
+        self.assertIsNone(results)
+
+    def test_returns_none_when_query_encoder_returns_none(self):
+        encoded_queries = []
+
+        class EmptyBM25Encoder:
+            def encode_document(self, text):
+                return models.SparseVector(indices=[10], values=[1.0])
+
+            def encode_query(self, text):
+                encoded_queries.append(text)
+                return None
+
+        store = QdrantStore(
+            client=self.client,
+            collection_name=self.collection_name,
+            dimension=3,
+            bm25_encoder=EmptyBM25Encoder(),
+        )
+
+        results = store.keyword_search(query="中文")
+
+        self.assertEqual(encoded_queries, ["中文"])
+        self.assertIsNone(results)
+
+    def test_returns_empty_list_when_bm25_query_has_no_matches(self):
+        encoded_queries = []
+
+        class FakeBM25Encoder:
+            def encode_document(self, text):
+                return models.SparseVector(indices=[10], values=[1.0])
+
+            def encode_query(self, text):
+                encoded_queries.append(text)
+                return models.SparseVector(indices=[10], values=[1.0])
+
+        store = QdrantStore(
+            client=self.client,
+            collection_name=self.collection_name,
+            dimension=3,
+            bm25_encoder=FakeBM25Encoder(),
+        )
+
+        results = store.keyword_search(query="中文")
+
+        self.assertEqual(encoded_queries, ["中文"])
+        self.assertEqual(results, [])
+
+    def test_limits_bm25_results_to_top_k(self):
+        class FakeBM25Encoder:
+            def encode_document(self, text):
+                return models.SparseVector(indices=[10], values=[1.0])
+
+            def encode_query(self, text):
+                return models.SparseVector(indices=[10], values=[1.0])
+
+        store = QdrantStore(
+            client=self.client,
+            collection_name=self.collection_name,
+            dimension=3,
+            bm25_encoder=FakeBM25Encoder(),
+        )
+        for position in range(3):
+            store.upsert(
+                memory_id=str(uuid.uuid4()),
+                vector=[1.0, 0.0, 0.0],
+                payload={"data": f"memory {position}"},
+            )
+
+        results = store.keyword_search(query="memory", top_k=2)
+
+        self.assertIsNotNone(results)
+        self.assertEqual(len(results), 2)
+
+    def test_filters_bm25_results_by_user_id(self):
+        class FakeBM25Encoder:
+            def encode_document(self, text):
+                return models.SparseVector(indices=[10], values=[1.0])
+
+            def encode_query(self, text):
+                return models.SparseVector(indices=[10], values=[1.0])
+
+        store = QdrantStore(
+            client=self.client,
+            collection_name=self.collection_name,
+            dimension=3,
+            bm25_encoder=FakeBM25Encoder(),
+        )
+        user_one_memory_id = str(uuid.uuid4())
+        user_two_memory_id = str(uuid.uuid4())
+        for memory_id, user_id in (
+            (user_one_memory_id, "u1"),
+            (user_two_memory_id, "u2"),
+        ):
+            store.upsert(
+                memory_id=memory_id,
+                vector=[1.0, 0.0, 0.0],
+                payload={"data": "相同内容", "user_id": user_id},
+            )
+
+        results = store.keyword_search(
+            query="相同内容",
+            filters={"user_id": "u1"},
+        )
+
+        self.assertIsNotNone(results)
+        self.assertEqual([point.id for point in results], [user_one_memory_id])

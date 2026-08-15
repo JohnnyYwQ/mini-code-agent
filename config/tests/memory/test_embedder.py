@@ -1,6 +1,12 @@
 from unittest import TestCase
+from unittest.mock import patch
 
-from core.memory.embedder import FastEmbedBM25Encoder
+from core.memory.embedder import (
+    FastEmbedBM25Encoder,
+    FastEmbedE5Encoder,
+    build_multilingual_e5_base_encoder,
+)
+from fastembed.common.model_description import PoolingType
 from qdrant_client import models
 
 
@@ -43,6 +49,75 @@ class FakeSparseModel:
 class EmptySparseModel:
     def embed(self, documents):
         return iter([])
+
+
+class RecordingDenseModel:
+    def __init__(self):
+        self.encoded_texts = []
+
+    def embed(self, texts):
+        [text] = texts
+        self.encoded_texts.append(text)
+        if text.startswith("passage: "):
+            return iter([FakeArray([0.1, 0.2, 0.3])])
+        return iter([FakeArray([0.4, 0.5, 0.6])])
+
+
+class FastEmbedE5EncoderTests(TestCase):
+    def test_adds_e5_roles_before_dense_encoding(self):
+        model = RecordingDenseModel()
+        encoder = FastEmbedE5Encoder(model=model)
+
+        document_vector = encoder.encode_document("我喜欢中文回答")
+        query_vector = encoder.encode_query("怎么用中文回答？")
+
+        self.assertEqual(
+            model.encoded_texts,
+            [
+                "passage: 我喜欢中文回答",
+                "query: 怎么用中文回答？",
+            ],
+        )
+        self.assertEqual(document_vector, [0.1, 0.2, 0.3])
+        self.assertEqual(query_vector, [0.4, 0.5, 0.6])
+
+
+class MultilingualE5BaseBuilderTests(TestCase):
+    @patch("core.memory.embedder.TextEmbedding")
+    def test_registers_and_builds_exact_model(self, text_embedding):
+        text_embedding.list_supported_models.return_value = []
+        model = object()
+        text_embedding.return_value = model
+
+        encoder = build_multilingual_e5_base_encoder()
+
+        registration = text_embedding.add_custom_model.call_args.kwargs
+        self.assertEqual(registration["model"], "intfloat/multilingual-e5-base")
+        self.assertEqual(registration["pooling"], PoolingType.MEAN)
+        self.assertIs(registration["normalization"], True)
+        self.assertEqual(registration["sources"].hf, "intfloat/multilingual-e5-base")
+        self.assertEqual(registration["dim"], 768)
+        self.assertEqual(registration["model_file"], "onnx/model.onnx")
+        text_embedding.assert_called_once_with(
+            model_name="intfloat/multilingual-e5-base"
+        )
+        self.assertIs(encoder.model, model)
+
+    @patch("core.memory.embedder.TextEmbedding")
+    def test_builds_registered_model_without_registering_it_again(self, text_embedding):
+        text_embedding.list_supported_models.return_value = [
+            {"model": "intfloat/multilingual-e5-base"}
+        ]
+        model = object()
+        text_embedding.return_value = model
+
+        encoder = build_multilingual_e5_base_encoder()
+
+        text_embedding.add_custom_model.assert_not_called()
+        text_embedding.assert_called_once_with(
+            model_name="intfloat/multilingual-e5-base"
+        )
+        self.assertIs(encoder.model, model)
 
 
 class FastEmbedBM25EncoderTests(TestCase):
