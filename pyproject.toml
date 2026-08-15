@@ -1,6 +1,6 @@
 [project]
 name = "mini-code-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "A minimal coding agent"
 readme = "README.md"
 license = "MIT"
@@ -8,9 +8,12 @@ requires-python = ">=3.13"
 dependencies = [
     "anthropic>=0.45",
     "django>=5.2,<6.0",
+    "fastembed>=0.8.0",
+    "jieba>=0.42.1",
     "prompt-toolkit>=3.0.53",
     "python-dotenv>=1.0",
     "pyyaml>=6.0.3",
+    "qdrant-client>=1.19.0",
 ]
 
 [dependency-groups]

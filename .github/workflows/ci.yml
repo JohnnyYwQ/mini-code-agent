@@ -45,7 +45,7 @@ jobs:
         run: uv run --locked mypy
 
       - name: Run tests with coverage
-        run: uv run --locked coverage run config/manage.py test chat
+        run: uv run --locked coverage run config/manage.py test chat tests.memory
 
       - name: Report coverage
         run: uv run --locked coverage report -m

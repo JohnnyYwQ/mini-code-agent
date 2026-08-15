@@ -72,7 +72,9 @@ summary_and_plan.md
 cookies.txt
 
 # Learning notes
-docs/
+docs/*
+!docs/adr/
+!docs/adr/**
 
 
 # Temporary runtime file

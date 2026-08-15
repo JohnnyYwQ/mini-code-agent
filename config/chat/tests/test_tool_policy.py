@@ -1,10 +1,10 @@
-import os
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import TestCase
 
-os.environ.setdefault("MODEL_ID", "test-model")
-os.environ.setdefault("ANTHROPIC_API_KEY", "test-api-key")
-
-from core.agent import TOOL_HANDLERS, TOOLS
+from core.agent import TOOLS
+from core.agent_runtime import AgentRuntime, AgentRuntimeConfig
 
 
 class ToolSchemaTests(TestCase):
@@ -26,7 +26,14 @@ class ToolSchemaTests(TestCase):
     def test_regular_tool_definitions_and_handlers_stay_in_sync(self):
         defined = {tool["name"] for tool in TOOLS}
 
+        with TemporaryDirectory() as temp_dir:
+            runtime = AgentRuntime(
+                workspace_path=Path(temp_dir),
+                config=AgentRuntimeConfig(model="test-model", api_key="test-key"),
+                message_client=SimpleNamespace(),
+            )
+
         self.assertEqual(
-            set(TOOL_HANDLERS),
+            set(runtime.tool_handlers),
             defined - {"compact"},
         )

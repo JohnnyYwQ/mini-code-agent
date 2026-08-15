@@ -7,7 +7,26 @@ snapshotting and reducing an already-built message history.
 import json
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
+
+
+@dataclass(frozen=True)
+class CompactionConfig:
+    persist_threshold: int = 4_000
+    keep_recent: int = 8
+    context_limit: int = 20_000
+    max_tool_result_chars: int = 12_000
+    max_messages: int = 100
+
+
+DEFAULT_COMPACTION_CONFIG = CompactionConfig()
+
+
+def _block_type(block: object) -> object:
+    if isinstance(block, dict):
+        return block.get("type")
+    return getattr(block, "type", None)
 
 
 class ContextCompactor:
@@ -19,20 +38,12 @@ class ContextCompactor:
         tool_results_dir: str | Path,
         summarize: Callable[[str], str],
         *,
-        persist_threshold: int = 200,
-        keep_recent: int = 5,
-        context_limit: int = 2000,
-        max_tool_result_chars: int = 1000,
-        max_messages: int = 10,
+        config: CompactionConfig = DEFAULT_COMPACTION_CONFIG,
     ):
         self.transcript_dir = Path(transcript_dir)
         self.tool_results_dir = Path(tool_results_dir)
         self.summarize = summarize
-        self.persist_threshold = persist_threshold
-        self.keep_recent = keep_recent
-        self.context_limit = context_limit
-        self.max_tool_result_chars = max_tool_result_chars
-        self.max_messages = max_messages
+        self.config = config
 
     def prepare_for_model(self, messages: list[dict]) -> list[dict]:
         """Snapshot and compact messages before a normal model request."""
@@ -40,7 +51,7 @@ class ContextCompactor:
         messages = self._tool_result_budget(messages)
         messages = self._snip_compact(messages)
         messages = self._micro_compact(messages)
-        if self._estimate_tokens(messages) > self.context_limit:
+        if self._estimate_tokens(messages) > self.config.context_limit:
             return self.compact_history(messages)
         return messages
 
@@ -69,9 +80,9 @@ class ContextCompactor:
 
     def _micro_compact(self, messages: list[dict]) -> list[dict]:
         results = self._collect_tool_results(messages)
-        if len(results) <= self.keep_recent:
+        if len(results) <= self.config.keep_recent:
             return messages
-        for _, _, block in results[: -self.keep_recent]:
+        for _, _, block in results[: -self.config.keep_recent]:
             if len(block.get("content", "")) > 120:
                 block["content"] = "[Earlier tool result compacted, rerun if needed]"
         return messages
@@ -91,7 +102,7 @@ class ContextCompactor:
             if isinstance(block, dict) and block.get("type") == "tool_result"
         ]
         total = sum(len(str(block.get("content", ""))) for block in blocks)
-        if total <= self.max_tool_result_chars:
+        if total <= self.config.max_tool_result_chars:
             return messages
 
         ranked = sorted(
@@ -100,7 +111,7 @@ class ContextCompactor:
             reverse=True,
         )
         for block in ranked:
-            if total <= self.max_tool_result_chars:
+            if total <= self.config.max_tool_result_chars:
                 break
 
             tool_use_id = str(block.get("tool_use_id")) or "unknown"
@@ -112,7 +123,7 @@ class ContextCompactor:
         return messages
 
     def _persist_large_output(self, tool_use_id: str, output: str) -> str:
-        if len(output) <= self.persist_threshold:
+        if len(output) <= self.config.persist_threshold:
             return output
         self.tool_results_dir.mkdir(parents=True, exist_ok=True)
         path = self.tool_results_dir / f"tool_result_{tool_use_id}"
@@ -126,11 +137,11 @@ class ContextCompactor:
         )
 
     def _snip_compact(self, messages: list[dict]) -> list[dict]:
-        if len(messages) <= self.max_messages:
+        if len(messages) <= self.config.max_messages:
             return messages
 
         keep_head = 3
-        keep_tail = self.max_messages - 3 - 1
+        keep_tail = self.config.max_messages - 3 - 1
         head_boundary = messages[keep_head - 1]
         tail_boundary = messages[-keep_tail]
 
@@ -154,13 +165,13 @@ class ContextCompactor:
     def _can_snip(message: dict) -> bool:
         if message.get("role") == "assistant":
             for block in message.get("content", []):
-                if "tool_use" in block.type:
+                if _block_type(block) == "tool_use":
                     return False
         if message.get("role") == "user":
             content = message.get("content")
             if isinstance(content, list):
                 for block in content:
-                    if "tool_result" in block.get("type"):
+                    if _block_type(block) == "tool_result":
                         return False
         return True
 

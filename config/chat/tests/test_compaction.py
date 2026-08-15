@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import TestCase
 
-from core.compaction import ContextCompactor
+from core.compaction import CompactionConfig, ContextCompactor
 
 
 def assistant_tool_use(tool_use_id: str) -> dict:
@@ -11,6 +11,20 @@ def assistant_tool_use(tool_use_id: str) -> dict:
         "role": "assistant",
         "content": [
             SimpleNamespace(type="tool_use", id=tool_use_id),
+        ],
+    }
+
+
+def persisted_assistant_tool_use(tool_use_id: str) -> dict:
+    return {
+        "role": "assistant",
+        "content": [
+            {
+                "type": "tool_use",
+                "id": tool_use_id,
+                "name": "read_file",
+                "input": {"path": "README.md"},
+            }
         ],
     }
 
@@ -54,8 +68,10 @@ class ContextCompactorTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=root / "tool-results",
                 summarize=lambda prompt: "summary",
-                keep_recent=1,
-                context_limit=100_000,
+                config=CompactionConfig(
+                    keep_recent=1,
+                    context_limit=100_000,
+                ),
             )
 
             prepared = compactor.prepare_for_model(messages)
@@ -90,9 +106,11 @@ class ContextCompactorTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=tool_results_dir,
                 summarize=lambda prompt: "summary",
-                persist_threshold=50,
-                max_tool_result_chars=100,
-                context_limit=100_000,
+                config=CompactionConfig(
+                    persist_threshold=50,
+                    max_tool_result_chars=100,
+                    context_limit=100_000,
+                ),
             )
 
             prepared = compactor.prepare_for_model(messages)
@@ -120,7 +138,7 @@ class ContextCompactorTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=root / "tool-results",
                 summarize=summarize,
-                context_limit=1,
+                config=CompactionConfig(context_limit=1),
             )
 
             prepared = compactor.prepare_for_model(
@@ -178,8 +196,10 @@ class ContextCompactorTests(TestCase):
                 transcript_dir=root / "transcripts",
                 tool_results_dir=root / "tool-results",
                 summarize=lambda prompt: "summary",
-                max_messages=6,
-                context_limit=100_000,
+                config=CompactionConfig(
+                    max_messages=6,
+                    context_limit=100_000,
+                ),
             )
 
             prepared = compactor.prepare_for_model(messages)
@@ -206,3 +226,45 @@ class ContextCompactorTests(TestCase):
         )
         self.assertEqual(prepared[4], {"role": "user", "content": "snipped 1 messages"})
         self.assertNotIn({"role": "user", "content": "middle"}, prepared)
+
+    def test_prepare_for_model_snips_resumed_persisted_tool_messages(self):
+        messages = [
+            {"role": "user", "content": "first"},
+            assistant_text("second"),
+            persisted_assistant_tool_use("head-boundary"),
+            user_tool_result("head-boundary", "head result"),
+            {"role": "user", "content": "middle"},
+            persisted_assistant_tool_use("tail-boundary"),
+            user_tool_result("tail-boundary", "tail result"),
+            assistant_text("last"),
+        ]
+
+        with TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            compactor = ContextCompactor(
+                transcript_dir=root / "transcripts",
+                tool_results_dir=root / "tool-results",
+                summarize=lambda prompt: "summary",
+                config=CompactionConfig(
+                    max_messages=6,
+                    context_limit=100_000,
+                ),
+            )
+
+            prepared = compactor.prepare_for_model(messages)
+
+        persisted_tool_use_ids = [
+            block["id"]
+            for message in prepared
+            if message["role"] == "assistant"
+            for block in message["content"]
+            if isinstance(block, dict) and block["type"] == "tool_use"
+        ]
+        self.assertEqual(
+            persisted_tool_use_ids,
+            ["head-boundary", "tail-boundary"],
+        )
+        self.assertEqual(
+            prepared[4],
+            {"role": "user", "content": "snipped 1 messages"},
+        )

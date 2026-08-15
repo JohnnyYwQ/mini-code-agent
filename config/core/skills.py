@@ -10,6 +10,8 @@ class Skill:
     description: str
     path: Path
     content: str | None = None
+    reference: dict[str, str] | None = None
+    script: dict[str, str] | None = None
 
 
 class SkillManager:
@@ -37,10 +39,32 @@ class SkillManager:
                 continue
 
             manifest = directory / "SKILL.md"
+            ref_dir = directory / "reference"
+            script_dir = directory / "script"
+
             if not manifest.is_file():
                 continue
 
             text = manifest.read_text()
+
+            reference: dict[str, str] = {}
+            if ref_dir.is_dir():
+                for ref in ref_dir.glob("*.md"):
+                    if not ref.is_file():
+                        continue
+                    ref_content = ref.read_text()
+                    if ref_content:
+                        reference[ref.name] = ref_content
+
+            script: dict[str, str] = {}
+            if script_dir.is_dir():
+                for scp in script_dir.glob("*.py"):
+                    if not scp.is_file():
+                        continue
+                    script_content = scp.read_text()
+                    if script_content:
+                        script[scp.name] = script_content
+
             metadata, content = parse_frontmatter(text)
             normalized_content = content.strip()
             if not normalized_content:
@@ -64,6 +88,8 @@ class SkillManager:
                 description=description,
                 path=manifest,
                 content=content,
+                reference=reference,
+                script=script,
             )
 
     def load_skill(self, name: str) -> str:
@@ -71,4 +97,9 @@ class SkillManager:
         skill = self.registry.get(name)
         if skill is None:
             return f"skill {name} not found in registry."
-        return skill.content or ""
+        if not skill.reference and not skill.script:
+            return skill.content or ""
+        return (
+            f"Skill content: {skill.content}, reference: {skill.reference}, "
+            f"script: {skill.script}."
+        )

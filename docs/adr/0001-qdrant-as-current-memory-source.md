@@ -1,0 +1,3 @@
+# Use Qdrant as the MVP current-memory source
+
+The first version uses each Qdrant Point as the authoritative current Memory and keeps its Source Text in the Point payload. `MemoryEvent` is not coupled to current-state writes in this version: requiring coordinated Qdrant and relational-database writes would introduce partial-success, idempotency, compensation, and recovery behavior before the core lifecycle is complete. An add validates the complete extraction result before writing, but persists accepted Memories sequentially and is not atomic: if a later Qdrant write fails, earlier successful writes remain and the error is propagated. Complete history, recovery, and transactional multi-Memory writes are deferred to later decisions.

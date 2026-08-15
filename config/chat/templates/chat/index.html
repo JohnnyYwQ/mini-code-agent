@@ -7,61 +7,105 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mini Code Agent</title>
   <link rel="stylesheet" href="{% static 'chat/style.css' %}">
-  <script src="{% static 'chat/chat.js' %}" defer> </script>
+  <script src="{% static 'chat/chat.js' %}" defer></script>
 </head>
 <body>
-  <main>
-    <header>
-      <div>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">
         <h1>Mini Code Agent</h1>
-        <p class="subtitle">Django chat shell backed by the mini agent runtime.</p>
+        <p>Trusted local workspace agent</p>
       </div>
-      <form method="post">
-        {% csrf_token %}
-        <button class="secondary" type="submit" name="clear" value="1">Clear</button>
-      </form>
-    </header>
 
-    <section class="messages" id="messages" aria-label="Conversation">
-      {% if messages %}
+      <form action="{% url 'chat:new_conversation' %}" method="post">
+        {% csrf_token %}
+        {% if selected_conversation %}
+          <input type="hidden" name="conversation_id" value="{{ selected_conversation.id }}">
+        {% endif %}
+        <button
+          class="new-conversation"
+          type="submit"
+          {% if workspace_unavailable %}disabled{% endif %}
+        >New conversation</button>
+      </form>
+
+      <nav class="conversation-list" aria-label="Conversations">
+        {% for group in conversation_groups %}
+          <section class="workspace-group{% if group.active %} active{% endif %}">
+            <div class="workspace-path" title="{{ group.workspace_path }}">
+              {{ group.workspace_path }}
+            </div>
+            {% for conversation in group.conversations %}
+              <a
+                href="{% url 'chat:index' %}?conversation={{ conversation.id }}"
+                data-conversation-id="{{ conversation.id }}"
+                class="conversation-link{% if selected_conversation.id == conversation.id %} selected{% endif %}"
+              >
+                <span>{{ conversation.title }}</span>
+                {% if not conversation.workspace_available %}
+                  <span class="unavailable-dot" title="Workspace unavailable">!</span>
+                {% endif %}
+              </a>
+            {% endfor %}
+          </section>
+        {% empty %}
+          <p class="sidebar-empty">No conversations yet.</p>
+        {% endfor %}
+      </nav>
+    </aside>
+
+    <main>
+      <header class="chat-header">
+        {% if selected_conversation %}
+          <div>
+            <h2 id="conversation-title">{{ selected_conversation.title }}</h2>
+            <p>{{ selected_conversation.workspace_path }}</p>
+          </div>
+        {% else %}
+          <div>
+            <h2>No conversation selected</h2>
+            <p>Create a conversation to begin.</p>
+          </div>
+        {% endif %}
+      </header>
+
+      {% if workspace_unavailable %}
+        <div class="workspace-warning" role="status">
+          This workspace is unavailable. Its transcript remains read-only.
+        </div>
+      {% endif %}
+
+      <section class="messages" id="messages" aria-label="Conversation">
         {% for message in messages %}
           <article class="message {{ message.role }}">
             <div class="role">{{ message.role }}</div>
             <div class="content">{{ message.content }}</div>
           </article>
-        {% endfor %}
-      {% else %}
-        <div class="empty">No messages yet.</div>
-      {% endif %}
-    </section>
-
-    {% if tool_trace %}
-      <section class="trace" aria-label="Tool calls">
-        <h2>Tool Trace</h2>
-        {% for call in tool_trace %}
-          <article class="trace-item {{ call.status }}">
-            <div class="trace-head">
-              <strong>{{ call.name }}</strong>
-              <span>{{ call.status }}</span>
-            </div>
-            <div class="trace-block">
-              <div class="label">input</div>
-              <pre>{{ call.input }}</pre>
-            </div>
-            <div class="trace-block">
-              <div class="label">output</div>
-              <pre>{{ call.output }}</pre>
-            </div>
-          </article>
+        {% empty %}
+          <div class="empty">No messages yet.</div>
         {% endfor %}
       </section>
-    {% endif %}
 
-    <form id="chat-form">
-      {% csrf_token %}
-      <textarea id="message" name="message"></textarea>
-      <button type="submit">Send</button>
-    </form>
-  </main>
+      <form
+        id="chat-form"
+        class="composer"
+        data-conversation-id="{% if selected_conversation %}{{ selected_conversation.id }}{% endif %}"
+      >
+        {% csrf_token %}
+        <textarea
+          id="message"
+          name="message"
+          aria-label="Message"
+          {% if not selected_conversation or workspace_unavailable %}disabled{% endif %}
+        ></textarea>
+        <div class="actions">
+          <button
+            type="submit"
+            {% if not selected_conversation or workspace_unavailable %}disabled{% endif %}
+          >Send</button>
+        </div>
+      </form>
+    </main>
+  </div>
 </body>
 </html>
