@@ -241,7 +241,7 @@ export MINI_CODE_AGENT_PROXY_URL=http://127.0.0.1:7890  # 按反向隧道的本�
 
 脚本复用 `~/.local/share/mini-code-agent/venvs/cu124`，先用锁文件检查环境，仅在不匹配时执行增量 `uv sync`。它也会优先识别已有的 `/tmp/fastembed_cache`、`~/.cache/huggingface/hub` 和仓库内已校验的数据集，不会重复下载完整模型。默认要求工作树干净并至少有 40 GiB 可用空间；需要调试未提交代码时可设置 `MINI_CODE_AGENT_ALLOW_DIRTY=1`，但结果会标为 `provisional`。
 
-最终的 `full/baseline.json` 同时包含 E5、BM25、E5+BM25+RRF 和 E5+BM25+RRF+BGE 的官方 `RecallAll@5`、`NDCG@5`、`RecallAll@10`、`NDCG@10` 公式结果、逐题记录、精确模型 revision 和实际 CUDA provider。BGE 默认重排固定的 RRF top 50 候选，RRF rank constant 为 60；两者都进入缓存身份。该结果称为“official-data/official-metric LongMemEval retrieval baseline”，只评测检索，不是 LongMemEval 端到端 QA 或官方 leaderboard 分数。中断后再次使用同一个 `MINI_CODE_AGENT_RUN_ID` 会从内容寻址的逐题 JSONL 继续。
+最终的 `full/baseline.json` 同时包含 E5、BM25、E5+BM25+RRF 和 E5+BM25+RRF+BGE 的官方 `RecallAll@5`、`NDCG@5`、`RecallAll@10`、`NDCG@10` 公式结果、逐题记录、精确模型 revision 和实际 CUDA provider。E5 的 provider 列表会包含 ONNX Runtime 用于形状与控制节点的隐式 CPU provider；运行前 profile 必须同时证明主计算算子位于 CUDA、CPU 没有主计算算子。BGE 默认重排固定的 RRF top 50 候选，RRF rank constant 为 60；两者都进入缓存身份。该结果称为“official-data/official-metric LongMemEval retrieval baseline”，只评测检索，不是 LongMemEval 端到端 QA 或官方 leaderboard 分数。中断后再次使用同一个 `MINI_CODE_AGENT_RUN_ID` 会从内容寻址的逐题 JSONL 继续。
 
 ## 调用 JSON API
 

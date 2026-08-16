@@ -77,7 +77,7 @@ A Retrieval Baseline produced by this project's retrievers on the official clean
 _Avoid_: LongMemEval QA score, official leaderboard score
 
 **CUDA Retrieval Evaluation Run**:
-A Retrieval Evaluation Run in which both dense encoding and reranking execute on the pinned GPU. A run with CPU fallback is invalid rather than a slower equivalent.
+A Retrieval Evaluation Run in which the substantive model computation for both dense encoding and reranking executes on the pinned GPU. A run that falls back to CPU for model computation is invalid rather than a slower equivalent.
 _Avoid_: CUDA-capable run, CPU fallback
 
 **Evaluation Cache**:

@@ -13,6 +13,7 @@ from typing import Any
 import jieba  # type: ignore[import-untyped]
 import torch as _torch  # noqa: F401  # preload CUDA libraries before FastEmbed/ORT
 from core.memory.embedder import (
+    CUDA_EXECUTION_PROVIDER,
     MULTILINGUAL_E5_BASE_DIMENSION,
     FastEmbedBM25Encoder,
     FastEmbedE5Encoder,
@@ -37,7 +38,7 @@ from fastembed import SparseTextEmbedding
 from qdrant_client import QdrantClient, models
 from tqdm import tqdm
 
-CANDIDATE_STAGE_SCHEMA = 1
+CANDIDATE_STAGE_SCHEMA = 2
 RRF_RANK_CONSTANT = 60
 MINIMUM_CANDIDATE_COUNT = 10
 EXPECTED_CUDA_DISTRIBUTIONS = {
@@ -90,6 +91,23 @@ def inspect_cuda_runtime() -> dict[str, Any]:
         }
     )
     return runtime
+
+
+def _has_verified_e5_cuda_execution(evidence: object) -> bool:
+    if not isinstance(evidence, dict):
+        return False
+    providers = evidence.get("providers")
+    cuda_compute_ops = evidence.get("cuda_compute_ops")
+    cpu_compute_ops = evidence.get("cpu_compute_ops")
+    return (
+        evidence.get("device_id") == 0
+        and isinstance(providers, list)
+        and bool(providers)
+        and providers[0] == CUDA_EXECUTION_PROVIDER
+        and isinstance(cuda_compute_ops, list)
+        and bool(cuda_compute_ops)
+        and cpu_compute_ops == []
+    )
 
 
 def _source_digest() -> str:
@@ -419,11 +437,11 @@ def run_candidate_stage(
             require_cuda=True,
             device_id=0,
         )
-        if dense_encoder.execution_providers != ("CUDAExecutionProvider",):
+        if not _has_verified_e5_cuda_execution(dense_encoder.cuda_execution):
             raise RuntimeError(
-                f"E5 provider assertion failed: {dense_encoder.execution_providers}"
+                f"E5 CUDA execution assertion failed: {dense_encoder.cuda_execution}"
             )
-        runtime["e5_execution_providers"] = list(dense_encoder.execution_providers)
+        runtime["e5_cuda_execution"] = dense_encoder.cuda_execution
         atomic_write_json(
             cache_manifest_path,
             {
@@ -496,7 +514,7 @@ def run_candidate_stage(
                     },
                 )
 
-    if runtime.get("e5_execution_providers") != ["CUDAExecutionProvider"]:
+    if not _has_verified_e5_cuda_execution(runtime.get("e5_cuda_execution")):
         raise RuntimeError("candidate cache lacks verified E5 CUDA runtime evidence")
     ordered_records = [record_by_id[question_id] for question_id in question_ids]
     rewrite_jsonl(records_path, ordered_records)

@@ -1,9 +1,15 @@
+import json
+import sys
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest import TestCase
 from unittest.mock import patch
 
 from core.memory.embedder import (
     FastEmbedBM25Encoder,
     FastEmbedE5Encoder,
+    _install_strict_cuda_session,
     build_multilingual_e5_base_encoder,
 )
 from fastembed.common.model_description import PoolingType
@@ -67,6 +73,65 @@ class RecordingDenseModel:
         )
 
 
+class FakeCudaSessionOptions:
+    def __init__(self):
+        self.config_entries = {}
+        self.enable_profiling = False
+        self.graph_optimization_level = None
+        self.inter_op_num_threads = 0
+        self.intra_op_num_threads = 0
+        self.profile_file_prefix = ""
+
+    def add_session_config_entry(self, name, value):
+        self.config_entries[name] = value
+
+
+class FakeCudaSession:
+    profile_events = []
+
+    def __init__(self, model_path, *, providers, sess_options):
+        if sess_options.config_entries.get("session.disable_cpu_ep_fallback") == "1":
+            raise RuntimeError(
+                "This session contains graph nodes that are assigned to the "
+                "default CPU EP, but fallback to CPU EP has been explicitly disabled"
+            )
+        self.model_path = model_path
+        self.requested_providers = providers
+        self.sess_options = sess_options
+        self.fallback_disabled = False
+
+    def disable_fallback(self):
+        self.fallback_disabled = True
+
+    def get_providers(self):
+        return ["CUDAExecutionProvider", "CPUExecutionProvider"]
+
+    def get_provider_options(self):
+        return {"CUDAExecutionProvider": {"device_id": "0"}}
+
+    def end_profiling(self):
+        profile_path = Path(f"{self.sess_options.profile_file_prefix}_test.json")
+        profile_path.write_text(json.dumps(self.profile_events), encoding="utf-8")
+        return str(profile_path)
+
+
+class FakeFastEmbedCudaModel:
+    def __init__(self, model_dir):
+        self.model = SimpleNamespace(
+            _model_dir=model_dir,
+            model_description=SimpleNamespace(model_file="onnx/model.onnx"),
+            threads=2,
+            model=None,
+            tokenizer=None,
+            special_token_to_id=None,
+        )
+        self.encoded_texts = []
+
+    def embed(self, texts, *, batch_size):
+        self.encoded_texts.extend(texts)
+        return iter([FakeArray([0.0] * 768)])
+
+
 class FastEmbedE5EncoderTests(TestCase):
     def test_adds_e5_roles_before_dense_encoding(self):
         model = RecordingDenseModel()
@@ -109,6 +174,97 @@ class FastEmbedE5EncoderTests(TestCase):
 
 
 class MultilingualE5BaseBuilderTests(TestCase):
+    def _install_fake_cuda_session(self, *, profile_events):
+        FakeCudaSession.profile_events = profile_events
+        with TemporaryDirectory() as temp_dir:
+            model_dir = Path(temp_dir)
+            model_path = model_dir / "onnx" / "model.onnx"
+            model_path.parent.mkdir()
+            model_path.touch()
+            model = FakeFastEmbedCudaModel(model_dir)
+            fake_ort = SimpleNamespace(
+                GraphOptimizationLevel=SimpleNamespace(ORT_ENABLE_ALL="all"),
+                InferenceSession=FakeCudaSession,
+                SessionOptions=FakeCudaSessionOptions,
+                get_available_providers=lambda: [
+                    "CUDAExecutionProvider",
+                    "CPUExecutionProvider",
+                ],
+            )
+            with (
+                patch.dict(sys.modules, {"onnxruntime": fake_ort}),
+                patch(
+                    "fastembed.common.preprocessor_utils.load_tokenizer",
+                    return_value=("tokenizer", {"[PAD]": 0}),
+                ),
+            ):
+                evidence = _install_strict_cuda_session(model, device_id=0)
+            return model, evidence
+
+    def test_cuda_preflight_allows_ort_cpu_shape_nodes(self):
+        model, evidence = self._install_fake_cuda_session(
+            profile_events=[
+                {
+                    "cat": "Node",
+                    "args": {
+                        "op_name": "Shape",
+                        "provider": "CPUExecutionProvider",
+                    },
+                },
+                {
+                    "cat": "Node",
+                    "args": {
+                        "op_name": "MatMul",
+                        "provider": "CUDAExecutionProvider",
+                    },
+                },
+            ]
+        )
+
+        session = model.model.model
+        self.assertTrue(session.fallback_disabled)
+        self.assertNotIn(
+            "session.disable_cpu_ep_fallback",
+            session.sess_options.config_entries,
+        )
+        self.assertTrue(session.sess_options.enable_profiling)
+        self.assertEqual(model.encoded_texts, ["query: CUDA preflight"])
+        self.assertEqual(
+            evidence,
+            {
+                "device_id": 0,
+                "providers": [
+                    "CUDAExecutionProvider",
+                    "CPUExecutionProvider",
+                ],
+                "cuda_profiled_ops": ["MatMul"],
+                "cpu_profiled_ops": ["Shape"],
+                "cuda_compute_ops": ["MatMul"],
+                "cpu_compute_ops": [],
+            },
+        )
+
+    def test_cuda_preflight_rejects_compute_heavy_cpu_fallback(self):
+        with self.assertRaisesRegex(RuntimeError, "compute-heavy.*CPU"):
+            self._install_fake_cuda_session(
+                profile_events=[
+                    {
+                        "cat": "Node",
+                        "args": {
+                            "op_name": "MatMul",
+                            "provider": "CPUExecutionProvider",
+                        },
+                    },
+                    {
+                        "cat": "Node",
+                        "args": {
+                            "op_name": "Shape",
+                            "provider": "CUDAExecutionProvider",
+                        },
+                    },
+                ]
+            )
+
     @patch("core.memory.embedder.TextEmbedding")
     def test_registers_and_builds_exact_model(self, text_embedding):
         text_embedding.list_supported_models.return_value = []

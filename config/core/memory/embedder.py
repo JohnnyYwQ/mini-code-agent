@@ -1,5 +1,7 @@
+import json
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 
 from fastembed import TextEmbedding
@@ -8,13 +10,40 @@ from qdrant_client import models
 
 MULTILINGUAL_E5_BASE_MODEL = "intfloat/multilingual-e5-base"
 MULTILINGUAL_E5_BASE_DIMENSION = 768
+CUDA_EXECUTION_PROVIDER = "CUDAExecutionProvider"
+CPU_EXECUTION_PROVIDER = "CPUExecutionProvider"
+E5_COMPUTE_HEAVY_OPS = frozenset(
+    {
+        "Attention",
+        "BiasGelu",
+        "EmbedLayerNormalization",
+        "FastGelu",
+        "FusedMatMul",
+        "Gelu",
+        "Gemm",
+        "GroupQueryAttention",
+        "LayerNormalization",
+        "MatMul",
+        "MultiHeadAttention",
+        "QAttention",
+        "SimplifiedLayerNormalization",
+        "SkipLayerNormalization",
+        "Softmax",
+    }
+)
 
 
 class FastEmbedE5Encoder:
     """Convert text into role-aware E5 dense vectors."""
 
-    def __init__(self, *, model: Any) -> None:
+    def __init__(
+        self,
+        *,
+        model: Any,
+        cuda_execution: dict[str, Any] | None = None,
+    ) -> None:
         self.model = model
+        self.cuda_execution = cuda_execution
 
     def encode_document(self, text: str) -> list[float]:
         """Encode memory text as an E5 passage."""
@@ -91,12 +120,70 @@ def _require_torch_cuda(*, device_id: int) -> None:
     torch.empty(1, device=f"cuda:{device_id}")
 
 
-def _install_strict_cuda_session(model: Any, *, device_id: int) -> None:
-    """Attach an ONNX session that rejects graph or runtime CPU fallback."""
+def _profiled_ops_by_provider(profile_path: Path) -> dict[str, set[str]]:
+    try:
+        events = json.loads(profile_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise RuntimeError(f"failed to read E5 CUDA profile: {profile_path}") from exc
+    if not isinstance(events, list):
+        raise RuntimeError("E5 CUDA profile did not contain an event list")
+
+    profiled_ops: dict[str, set[str]] = {}
+    for event in events:
+        if not isinstance(event, dict) or event.get("cat") != "Node":
+            continue
+        args = event.get("args")
+        if not isinstance(args, dict):
+            continue
+        provider = args.get("provider")
+        op_name = args.get("op_name")
+        if isinstance(provider, str) and isinstance(op_name, str):
+            profiled_ops.setdefault(provider, set()).add(op_name)
+    return profiled_ops
+
+
+def _verify_cuda_profile(
+    profile_path: Path,
+    *,
+    providers: tuple[str, ...],
+    device_id: int,
+) -> dict[str, Any]:
+    profiled_ops = _profiled_ops_by_provider(profile_path)
+    cuda_ops = profiled_ops.get(CUDA_EXECUTION_PROVIDER, set())
+    cpu_ops = profiled_ops.get(CPU_EXECUTION_PROVIDER, set())
+    cuda_compute_ops = cuda_ops.intersection(E5_COMPUTE_HEAVY_OPS)
+    cpu_compute_ops = cpu_ops.intersection(E5_COMPUTE_HEAVY_OPS)
+
+    if cpu_compute_ops:
+        raise RuntimeError(
+            "E5 CUDA preflight assigned compute-heavy operators to CPU: "
+            f"{sorted(cpu_compute_ops)}"
+        )
+    if not cuda_compute_ops:
+        raise RuntimeError(
+            "E5 CUDA preflight did not execute a compute-heavy operator on CUDA"
+        )
+
+    return {
+        "device_id": device_id,
+        "providers": list(providers),
+        "cuda_profiled_ops": sorted(cuda_ops),
+        "cpu_profiled_ops": sorted(cpu_ops),
+        "cuda_compute_ops": sorted(cuda_compute_ops),
+        "cpu_compute_ops": [],
+    }
+
+
+def _install_strict_cuda_session(
+    model: Any,
+    *,
+    device_id: int,
+) -> dict[str, Any]:
+    """Attach and profile an E5 session whose dominant compute runs on CUDA."""
     import onnxruntime as ort  # type: ignore[import-untyped]
     from fastembed.common.preprocessor_utils import load_tokenizer
 
-    if "CUDAExecutionProvider" not in ort.get_available_providers():
+    if CUDA_EXECUTION_PROVIDER not in ort.get_available_providers():
         raise RuntimeError(
             "ONNX Runtime CUDAExecutionProvider is unavailable; "
             "refusing to run E5 on CPU"
@@ -115,30 +202,69 @@ def _install_strict_cuda_session(model: Any, *, device_id: int) -> None:
     if not model_path.is_file():
         raise RuntimeError(f"E5 ONNX model is missing: {model_path}")
 
-    session_options = ort.SessionOptions()
-    session_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-    session_options.add_session_config_entry("session.disable_cpu_ep_fallback", "1")
-    threads = getattr(inner_model, "threads", None)
-    if threads is not None:
-        session_options.intra_op_num_threads = threads
-        session_options.inter_op_num_threads = threads
-
-    session = ort.InferenceSession(
-        str(model_path),
-        providers=[("CUDAExecutionProvider", {"device_id": device_id})],
-        sess_options=session_options,
-    )
-    session.disable_fallback()
-    providers = tuple(session.get_providers())
-    if providers != ("CUDAExecutionProvider",):
-        raise RuntimeError(
-            f"E5 ONNX session did not remain CUDA-only: providers={providers}"
+    with TemporaryDirectory(prefix="mini-code-agent-e5-ort-") as profile_dir:
+        session_options = ort.SessionOptions()
+        session_options.graph_optimization_level = (
+            ort.GraphOptimizationLevel.ORT_ENABLE_ALL
         )
+        session_options.enable_profiling = True
+        session_options.profile_file_prefix = str(
+            Path(profile_dir) / "onnxruntime_profile"
+        )
+        threads = getattr(inner_model, "threads", None)
+        if threads is not None:
+            session_options.intra_op_num_threads = threads
+            session_options.inter_op_num_threads = threads
 
-    tokenizer, special_token_to_id = load_tokenizer(model_dir=Path(model_dir))
-    inner_model.model = session
-    inner_model.tokenizer = tokenizer
-    inner_model.special_token_to_id = special_token_to_id
+        session = ort.InferenceSession(
+            str(model_path),
+            providers=[(CUDA_EXECUTION_PROVIDER, {"device_id": device_id})],
+            sess_options=session_options,
+        )
+        session.disable_fallback()
+        providers = tuple(session.get_providers())
+        if not providers or providers[0] != CUDA_EXECUTION_PROVIDER:
+            raise RuntimeError(
+                f"E5 ONNX session did not prefer CUDA: providers={providers}"
+            )
+        unexpected_providers = set(providers).difference(
+            {CUDA_EXECUTION_PROVIDER, CPU_EXECUTION_PROVIDER}
+        )
+        if unexpected_providers:
+            raise RuntimeError(
+                "E5 ONNX session registered unexpected providers: "
+                f"{sorted(unexpected_providers)}"
+            )
+        cuda_options = session.get_provider_options().get(
+            CUDA_EXECUTION_PROVIDER,
+            {},
+        )
+        if str(cuda_options.get("device_id")) != str(device_id):
+            raise RuntimeError(
+                "E5 ONNX session selected the wrong CUDA device: "
+                f"{cuda_options.get('device_id')}"
+            )
+
+        tokenizer, special_token_to_id = load_tokenizer(model_dir=Path(model_dir))
+        inner_model.model = session
+        inner_model.tokenizer = tokenizer
+        inner_model.special_token_to_id = special_token_to_id
+        try:
+            probe = next(iter(model.embed(["query: CUDA preflight"], batch_size=1)))
+            probe_values = list(probe.tolist())
+            if len(probe_values) != MULTILINGUAL_E5_BASE_DIMENSION:
+                raise RuntimeError(
+                    "E5 CUDA preflight returned an unexpected vector dimension: "
+                    f"{len(probe_values)}"
+                )
+        finally:
+            profile_path = Path(session.end_profiling())
+
+        return _verify_cuda_profile(
+            profile_path,
+            providers=providers,
+            device_id=device_id,
+        )
 
 
 def build_multilingual_e5_base_encoder(
@@ -182,9 +308,10 @@ def build_multilingual_e5_base_encoder(
         )
 
     model = TextEmbedding(**model_kwargs)
+    cuda_execution = None
     if require_cuda:
-        _install_strict_cuda_session(model, device_id=device_id)
-    return FastEmbedE5Encoder(model=model)
+        cuda_execution = _install_strict_cuda_session(model, device_id=device_id)
+    return FastEmbedE5Encoder(model=model, cuda_execution=cuda_execution)
 
 
 class FastEmbedBM25Encoder:
