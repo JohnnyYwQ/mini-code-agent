@@ -63,6 +63,7 @@ build/
 # Temporary files
 *.tmp
 *.bak
+*.mov
 
 
 # Temporary summary
@@ -75,6 +76,8 @@ cookies.txt
 docs/*
 !docs/adr/
 !docs/adr/**
+!docs/assets/
+!docs/assets/**
 
 
 # Temporary runtime file

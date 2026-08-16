@@ -1,5 +1,6 @@
 """Production composition for the Memory module."""
 
+import logging
 from dataclasses import dataclass
 
 import jieba  # type: ignore[import-untyped]
@@ -44,6 +45,7 @@ def _build_qdrant_client(location: str) -> QdrantClient:
 
 def build_memory(*, config: MemoryCompositionConfig) -> Memory:
     """Assemble reusable production adapters behind the Memory interface."""
+    jieba.setLogLevel(logging.WARNING)
     dense_encoder = build_multilingual_e5_base_encoder()
     bm25_encoder = FastEmbedBM25Encoder(
         model=SparseTextEmbedding(model_name=config.bm25_model),

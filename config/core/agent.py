@@ -38,6 +38,54 @@ session = PromptSession[str](
 CLI_PROMPT = ANSI("\033[36mmini-code-agent >> \033[0m")
 
 
+def visible_cli_history(
+    messages: list[dict[str, object]],
+) -> list[tuple[str, str]]:
+    """Project a persisted transcript into the history shown by the CLI."""
+    visible: list[tuple[str, str]] = []
+    for message in messages:
+        role = message.get("role")
+        content = message.get("content")
+        if role == "user":
+            if isinstance(content, str) and content.strip():
+                visible.append(("user", content.strip()))
+            continue
+
+        if role != "assistant":
+            continue
+        if isinstance(content, str):
+            if content.strip():
+                visible.append(("assistant", content.strip()))
+            continue
+        if not isinstance(content, list) or any(
+            isinstance(block, dict) and block.get("type") == "tool_use"
+            for block in content
+        ):
+            continue
+
+        parts = []
+        for block in content:
+            text = block.get("text") if isinstance(block, dict) else None
+            if isinstance(text, str) and text.strip():
+                parts.append(text.strip())
+        if parts:
+            visible.append(("assistant", "\n".join(parts)))
+
+    return visible
+
+
+def print_cli_history(messages: list[dict[str, object]]) -> None:
+    history = visible_cli_history(messages)
+    if not history:
+        return
+
+    print("\nConversation history:")
+    for role, text in history:
+        label = "user" if role == "user" else "mini-code-agent"
+        print(f"{label} >> {text}")
+    print()
+
+
 def safe_path(p: str, *, workspace: Path | None = None) -> Path:
     """
     transform string path to Path path.
@@ -364,6 +412,7 @@ if __name__ == "__main__":
     from chat.application import (
         ConversationNotFoundError,
         list_conversations,
+        load_conversation_messages,
         resume_conversation,
         run_conversation_turn,
         start_conversation,
@@ -405,6 +454,8 @@ if __name__ == "__main__":
         conversation = start_conversation(workspace_path=cli_workspace)
 
     print(f"Conversation: {conversation.id}")
+    if args.resume:
+        print_cli_history(load_conversation_messages(conversation_id=conversation.id))
     try:
         while True:
             try:

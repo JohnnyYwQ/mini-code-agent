@@ -1,3 +1,4 @@
+import logging
 from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
@@ -9,12 +10,14 @@ from core.memory.qdrant_store import QdrantStore
 
 
 class MemoryCompositionTests(TestCase):
+    @patch("core.memory.composition.jieba.setLogLevel")
     @patch("core.memory.composition.SparseTextEmbedding", return_value=object())
     @patch("core.memory.composition.build_multilingual_e5_base_encoder")
     def test_builds_memory_with_persistent_adapter_seams(
         self,
         build_dense_encoder,
         sparse_embedding,
+        set_jieba_log_level,
     ):
         dense_encoder = object()
         build_dense_encoder.return_value = dense_encoder
@@ -35,6 +38,7 @@ class MemoryCompositionTests(TestCase):
             self.assertIs(memory.dense_encoder, dense_encoder)
             self.assertIsInstance(memory.extractor, LLMMemoryExtractor)
             self.assertIsInstance(memory.vector_store, QdrantStore)
+            set_jieba_log_level.assert_called_once_with(logging.WARNING)
         finally:
             memory.close()
 

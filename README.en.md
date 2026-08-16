@@ -2,6 +2,8 @@
 
 [中文](README.md)
 
+![Mini Code Agent CLI demo](docs/assets/demo.gif)
+
 ## Overview
 
 Mini Code Agent 0.2 is a small Django-based coding agent for learning and local development. It provides resumable Web and CLI Conversations, a JSON chat API, workspace-bound Agent Runtimes, and calls the Claude Messages API through the Anthropic Python SDK.
