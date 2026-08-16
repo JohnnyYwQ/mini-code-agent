@@ -1,0 +1,240 @@
+{
+  "version": 1,
+  "description": "Hand-authored retrieval cases for the Memory.recall interface.",
+  "memories": [
+    {
+      "id": "00000000-0000-0000-0000-000000000001",
+      "text": "修改检索算分后，提交前必须运行 python -m pytest tests/utils/test_scoring.py -q。",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000002",
+      "text": "提交前运行 uv run ruff check . 检查代码规范。",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000003",
+      "text": "提交前运行 uv run mypy 检查静态类型。",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000004",
+      "text": "部署前运行 uv run python config/manage.py check --deploy。",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000005",
+      "text": "CLI 只能恢复当前工作区中的 Conversation。",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000006",
+      "text": "每个新 Turn 都会自动召回当前 User 的 User Memory，以及当前 Memory Space 的 Space Memory。",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000007",
+      "text": "用户偏好简洁回答。",
+      "user_id": "user-a",
+      "space_id": null
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000008",
+      "text": "用户偏好先给结论，再解释原因。",
+      "user_id": "user-a",
+      "space_id": null
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000009",
+      "text": "支持工单 ticket-4821 的状态是等待客户确认。",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000010",
+      "text": "This repository uses Ruff as its Python formatter and linter.",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000011",
+      "text": "这个前端项目提交前运行 npm test。",
+      "user_id": "user-a",
+      "space_id": "space-beta"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000012",
+      "text": "支持工单 ticket-4821 已经关闭。",
+      "user_id": "user-b",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000013",
+      "text": "用户偏好详细、长篇的回答。",
+      "user_id": "user-b",
+      "space_id": null
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000014",
+      "text": "Conversation metadata is stored in SQLite.",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000015",
+      "text": "Memory retrieval vectors are stored in a local Qdrant collection.",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000016",
+      "text": "支持工单 ticket-4281 的状态是等待工程师处理。",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000017",
+      "text": "包含 sudo 的 shell 命令会被权限 hook 阻止。",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000018",
+      "text": "Start the local Web interface with uv run python config/manage.py runserver.",
+      "user_id": "user-a",
+      "space_id": "space-alpha"
+    }
+  ],
+  "queries": [
+    {
+      "id": "q01-semantic-test-command",
+      "query": "检索打分逻辑改完以后，提交代码之前该跑什么？",
+      "context": {
+        "user_id": "user-a",
+        "space_id": "space-alpha"
+      },
+      "relevant_memory_ids": [
+        "00000000-0000-0000-0000-000000000001"
+      ],
+      "tags": ["single", "semantic", "zh"]
+    },
+    {
+      "id": "q02-exact-ticket",
+      "query": "ticket-4821 现在是什么状态？",
+      "context": {
+        "user_id": "user-a",
+        "space_id": "space-alpha"
+      },
+      "relevant_memory_ids": [
+        "00000000-0000-0000-0000-000000000009"
+      ],
+      "tags": ["single", "keyword", "mixed"]
+    },
+    {
+      "id": "q03-user-length-preference",
+      "query": "用户对回答长度有什么偏好？",
+      "context": {
+        "user_id": "user-a",
+        "space_id": "space-alpha"
+      },
+      "relevant_memory_ids": [
+        "00000000-0000-0000-0000-000000000007"
+      ],
+      "tags": ["single", "user-scope", "zh"]
+    },
+    {
+      "id": "q04-english-formatter",
+      "query": "Which formatter and linter does this repository use?",
+      "context": {
+        "user_id": "user-a",
+        "space_id": "space-alpha"
+      },
+      "relevant_memory_ids": [
+        "00000000-0000-0000-0000-000000000010"
+      ],
+      "tags": ["single", "semantic", "en"]
+    },
+    {
+      "id": "q05-mixed-resume-scope",
+      "query": "CLI resume Conversation 时可以跨 workspace 吗？",
+      "context": {
+        "user_id": "user-a",
+        "space_id": "space-alpha"
+      },
+      "relevant_memory_ids": [
+        "00000000-0000-0000-0000-000000000005"
+      ],
+      "tags": ["single", "scope", "mixed"]
+    },
+    {
+      "id": "q06-recall-timing",
+      "query": "记忆是在什么时候自动找回来的？",
+      "context": {
+        "user_id": "user-a",
+        "space_id": "space-alpha"
+      },
+      "relevant_memory_ids": [
+        "00000000-0000-0000-0000-000000000006"
+      ],
+      "tags": ["single", "semantic", "zh"]
+    },
+    {
+      "id": "q07-space-specific-test-command",
+      "query": "当前这个 Python 项目应该运行哪条测试命令？",
+      "context": {
+        "user_id": "user-a",
+        "space_id": "space-alpha"
+      },
+      "relevant_memory_ids": [
+        "00000000-0000-0000-0000-000000000001"
+      ],
+      "tags": ["single", "space-isolation", "zh"]
+    },
+    {
+      "id": "q08-all-precommit-checks",
+      "query": "提交前需要完成哪些测试、规范和类型检查？",
+      "context": {
+        "user_id": "user-a",
+        "space_id": "space-alpha"
+      },
+      "relevant_memory_ids": [
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-000000000002",
+        "00000000-0000-0000-0000-000000000003"
+      ],
+      "tags": ["multi", "semantic", "zh"]
+    },
+    {
+      "id": "q09-answer-style",
+      "query": "How should responses be structured and sized for this user?",
+      "context": {
+        "user_id": "user-a",
+        "space_id": "space-alpha"
+      },
+      "relevant_memory_ids": [
+        "00000000-0000-0000-0000-000000000007",
+        "00000000-0000-0000-0000-000000000008"
+      ],
+      "tags": ["multi", "user-scope", "en"]
+    },
+    {
+      "id": "q10-resume-and-memory",
+      "query": "恢复旧聊天和在新 Turn 中使用记忆分别遵循什么规则？",
+      "context": {
+        "user_id": "user-a",
+        "space_id": "space-alpha"
+      },
+      "relevant_memory_ids": [
+        "00000000-0000-0000-0000-000000000005",
+        "00000000-0000-0000-0000-000000000006"
+      ],
+      "tags": ["multi", "semantic", "zh"]
+    }
+  ]
+}

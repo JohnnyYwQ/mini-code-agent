@@ -89,8 +89,10 @@ class AgentRuntimeMemoryTests(TestCase):
             def __init__(self):
                 self.added_messages = None
                 self.added_context = None
+                self.recall_rerank = None
 
-            def recall(self, *, query, context, limit):
+            def recall(self, *, query, context, limit, rerank=False):
+                self.recall_rerank = rerank
                 return [
                     MemorySearchResult(
                         id="memory-1",
@@ -162,6 +164,7 @@ class AgentRuntimeMemoryTests(TestCase):
 
         first_request = create.call_args_list[0].kwargs
         self.assertIn("[user] User prefers concise answers.", first_request["system"])
+        self.assertIs(memory.recall_rerank, True)
         remember_tool = next(
             tool for tool in first_request["tools"] if tool["name"] == "remember"
         )
@@ -188,7 +191,7 @@ class AgentRuntimeMemoryTests(TestCase):
 
     def test_memory_failures_do_not_abort_the_agent_turn(self):
         class BrokenMemory:
-            def recall(self, *, query, context, limit):
+            def recall(self, *, query, context, limit, rerank=False):
                 return []
 
             def add(self, *, messages, context, prompt=None):

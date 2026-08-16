@@ -3,6 +3,7 @@ from tempfile import TemporaryDirectory
 from unittest import TestCase
 from unittest.mock import patch
 
+from core.memory.bge_reranker import BGEReranker
 from core.memory.composition import MemoryCompositionConfig, build_memory
 from core.memory.config import AnthropicLLMConfig
 from core.memory.extraction import LLMMemoryExtractor
@@ -38,6 +39,7 @@ class MemoryCompositionTests(TestCase):
             self.assertIs(memory.dense_encoder, dense_encoder)
             self.assertIsInstance(memory.extractor, LLMMemoryExtractor)
             self.assertIsInstance(memory.vector_store, QdrantStore)
+            self.assertIsInstance(memory.reranker, BGEReranker)
             set_jieba_log_level.assert_called_once_with(logging.WARNING)
         finally:
             memory.close()

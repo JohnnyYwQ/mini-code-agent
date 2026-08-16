@@ -42,6 +42,7 @@ class AgentMemory(Protocol):
         query: str,
         context: MemoryContext,
         limit: int = 5,
+        rerank: bool = False,
     ) -> list[MemorySearchResult]: ...
 
     def add(
@@ -65,6 +66,7 @@ class AgentRuntimeConfig:
     base_url: str | None = None
     max_tokens: int = 8_000
     max_rounds: int = MAX_ROUNDS
+    memory_rerank: bool = True
 
     def __post_init__(self) -> None:
         if not self.model:
@@ -285,6 +287,7 @@ class AgentRuntime:
                 query=latest_user_query,
                 context=self.memory_context,
                 limit=5,
+                rerank=self.config.memory_rerank,
             )
         except Exception:
             logger.warning(

@@ -167,3 +167,50 @@ class MemorySearchTests(TestCase):
             {result.data for result in results[1:]},
             {"User writes Python.", "This repository uses Django."},
         )
+
+    def test_reranks_twenty_candidates_down_to_requested_limit(self):
+        requested_top_ks = []
+
+        class CandidateStore:
+            def dense_search(self, *, query_vector, top_k, filters):
+                requested_top_ks.append(top_k)
+                scope = "user" if filters["space_id"] is None else "space"
+                return [
+                    MemorySearchResult(
+                        id=f"{scope}-{index}",
+                        data=f"{scope} memory {index}",
+                        scope=scope,
+                        score=1 / (index + 1),
+                        metadata=dict(filters),
+                    )
+                    for index in range(top_k)
+                ]
+
+            def keyword_search(self, *, query, top_k, filters):
+                return None
+
+        class RecordingReranker:
+            candidates = []
+
+            def rerank(self, *, query, candidates, limit):
+                self.candidates = list(candidates)
+                return list(reversed(candidates))[:limit]
+
+        reranker = RecordingReranker()
+        memory = Memory(
+            extractor=UnusedMemoryExtractor(),
+            dense_encoder=FakeDenseEncoder(),
+            vector_store=CandidateStore(),
+            reranker=reranker,
+        )
+
+        results = memory.recall(
+            query="Which memory matters?",
+            context=MemoryContext(user_id="u1", space_id="s1"),
+            limit=5,
+            rerank=True,
+        )
+
+        self.assertEqual(requested_top_ks, [10, 10])
+        self.assertEqual(len(reranker.candidates), 20)
+        self.assertEqual(results, list(reversed(reranker.candidates))[:5])
