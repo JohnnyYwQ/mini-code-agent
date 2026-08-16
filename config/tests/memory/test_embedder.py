@@ -25,42 +25,46 @@ class FakeSparseEmbedding:
 
 
 class FakeSparseModel:
-    def embed(self, documents):
-        [document] = documents
-        if document == "我 喜欢 中文 回答":
-            embedding = FakeSparseEmbedding([12, 40], [0.5, 1.25])
-        elif document == "machine learning":
-            embedding = FakeSparseEmbedding([7, 21], [0.7, 1.1])
-        else:
-            embedding = FakeSparseEmbedding([99], [0.01])
-        return iter([embedding])
+    def __init__(self):
+        self.batch_sizes = []
 
-    def query_embed(self, queries):
-        [query] = queries
-        if query == "我 喜欢 中文 回答":
-            embedding = FakeSparseEmbedding([12, 40], [1.0, 1.0])
-        elif query == "machine learning":
-            embedding = FakeSparseEmbedding([7, 21], [1.0, 1.0])
-        else:
-            embedding = FakeSparseEmbedding([99], [1.0])
-        return iter([embedding])
+    def _embedding(self, document, *, query):
+        if document == "我 喜欢 中文 回答":
+            values = [1.0, 1.0] if query else [0.5, 1.25]
+            return FakeSparseEmbedding([12, 40], values)
+        elif document == "machine learning":
+            values = [1.0, 1.0] if query else [0.7, 1.1]
+            return FakeSparseEmbedding([7, 21], values)
+        return FakeSparseEmbedding([99], [1.0] if query else [0.01])
+
+    def embed(self, documents, *, batch_size):
+        self.batch_sizes.append(batch_size)
+        return iter(self._embedding(document, query=False) for document in documents)
+
+    def query_embed(self, queries, *, batch_size):
+        self.batch_sizes.append(batch_size)
+        return iter(self._embedding(query, query=True) for query in queries)
 
 
 class EmptySparseModel:
-    def embed(self, documents):
+    def embed(self, documents, *, batch_size):
         return iter([])
 
 
 class RecordingDenseModel:
     def __init__(self):
         self.encoded_texts = []
+        self.batch_sizes = []
 
-    def embed(self, texts):
-        [text] = texts
-        self.encoded_texts.append(text)
-        if text.startswith("passage: "):
-            return iter([FakeArray([0.1, 0.2, 0.3])])
-        return iter([FakeArray([0.4, 0.5, 0.6])])
+    def embed(self, texts, *, batch_size):
+        self.encoded_texts.extend(texts)
+        self.batch_sizes.append(batch_size)
+        return iter(
+            FakeArray([0.1, 0.2, 0.3])
+            if text.startswith("passage: ")
+            else FakeArray([0.4, 0.5, 0.6])
+            for text in texts
+        )
 
 
 class FastEmbedE5EncoderTests(TestCase):
@@ -80,6 +84,28 @@ class FastEmbedE5EncoderTests(TestCase):
         )
         self.assertEqual(document_vector, [0.1, 0.2, 0.3])
         self.assertEqual(query_vector, [0.4, 0.5, 0.6])
+        self.assertEqual(model.batch_sizes, [1, 1])
+
+    def test_batches_role_aware_dense_encoding(self):
+        model = RecordingDenseModel()
+        encoder = FastEmbedE5Encoder(model=model)
+
+        documents = encoder.encode_documents(["one", "two"], batch_size=8)
+        queries = encoder.encode_queries(["three", "four"], batch_size=4)
+
+        self.assertEqual(
+            model.encoded_texts,
+            ["passage: one", "passage: two", "query: three", "query: four"],
+        )
+        self.assertEqual(model.batch_sizes, [8, 4])
+        self.assertEqual(documents, [[0.1, 0.2, 0.3], [0.1, 0.2, 0.3]])
+        self.assertEqual(queries, [[0.4, 0.5, 0.6], [0.4, 0.5, 0.6]])
+
+    def test_rejects_non_positive_batch_size(self):
+        encoder = FastEmbedE5Encoder(model=RecordingDenseModel())
+
+        with self.assertRaisesRegex(ValueError, "batch_size"):
+            encoder.encode_documents(["one"], batch_size=0)
 
 
 class MultilingualE5BaseBuilderTests(TestCase):
@@ -101,6 +127,39 @@ class MultilingualE5BaseBuilderTests(TestCase):
         text_embedding.assert_called_once_with(
             model_name="intfloat/multilingual-e5-base"
         )
+        self.assertIs(encoder.model, model)
+
+    @patch("core.memory.embedder._install_strict_cuda_session")
+    @patch("core.memory.embedder._require_torch_cuda")
+    @patch("core.memory.embedder.TextEmbedding")
+    def test_builds_pinned_model_with_strict_cuda_session(
+        self,
+        text_embedding,
+        require_torch_cuda,
+        install_strict_cuda_session,
+    ):
+        text_embedding.list_supported_models.return_value = [
+            {"model": "intfloat/multilingual-e5-base"}
+        ]
+        model = object()
+        text_embedding.return_value = model
+
+        encoder = build_multilingual_e5_base_encoder(
+            cache_dir="/models/cache",
+            model_path="/models/e5/snapshot",
+            require_cuda=True,
+            device_id=1,
+        )
+
+        require_torch_cuda.assert_called_once_with(device_id=1)
+        text_embedding.assert_called_once_with(
+            model_name="intfloat/multilingual-e5-base",
+            cache_dir="/models/cache",
+            specific_model_path="/models/e5/snapshot",
+            providers=[("CUDAExecutionProvider", {"device_id": 1})],
+            lazy_load=True,
+        )
+        install_strict_cuda_session.assert_called_once_with(model, device_id=1)
         self.assertIs(encoder.model, model)
 
     @patch("core.memory.embedder.TextEmbedding")
@@ -198,3 +257,21 @@ class FastEmbedBM25EncoderTests(TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "no embedding"):
             encoder.encode_document("valid memory")
+
+    def test_batches_documents_and_queries(self):
+        model = FakeSparseModel()
+        encoder = FastEmbedBM25Encoder(
+            model=model,
+            chinese_segmenter=lambda text: ["我", "喜欢", "中文", "回答"],
+        )
+
+        documents = encoder.encode_documents(
+            ["我喜欢中文回答", "machine learning"],
+            batch_size=16,
+        )
+        queries = encoder.encode_queries(["machine learning"], batch_size=8)
+
+        self.assertEqual(model.batch_sizes, [16, 8])
+        self.assertEqual(documents[0].indices, [12, 40])
+        self.assertEqual(documents[1].values, [0.7, 1.1])
+        self.assertEqual(queries[0].values, [1.0, 1.0])

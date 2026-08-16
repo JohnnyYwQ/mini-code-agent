@@ -55,3 +55,39 @@ _Avoid_: Scope, filter
 **Source Text**:
 The authoritative human-readable content of a Memory from which retrieval representations can be derived.
 _Avoid_: Embedding, tokenized text
+
+**Retrieval Evaluation Run**:
+A reproducible batch measurement of how well Memory retrieval identifies relevant evidence for a fixed dataset and configuration. It is separate from the deployed Django application and from an interactive Agent Turn.
+_Avoid_: Deployment, production run, performance benchmark, Turn
+
+**Evidence Session**:
+A history session identified by an evaluation dataset as relevant to one retrieval query. Its evidence may occur in either user or agent-visible text.
+_Avoid_: User-only evidence, Memory
+
+**Abstention Case**:
+An evaluation question intentionally lacking an Evidence Session and expecting the system not to answer from unsupported context.
+_Avoid_: Retrieval miss, empty result
+
+**Retrieval Baseline**:
+A result artifact from a completed Retrieval Evaluation Run, tied to an exact source revision with no uncommitted changes, that serves as the comparison point for later retrieval changes. It is measured before quality regression thresholds are chosen.
+_Avoid_: Quality threshold, performance benchmark
+
+**LongMemEval Retrieval Baseline**:
+A Retrieval Baseline produced by this project's retrievers on the official cleaned LongMemEval-S data using the official retrieval indexing, eligibility, and scoring rules. It measures retrieval only and is not an end-to-end LongMemEval answer score or an official leaderboard result.
+_Avoid_: LongMemEval QA score, official leaderboard score
+
+**CUDA Retrieval Evaluation Run**:
+A Retrieval Evaluation Run in which both dense encoding and reranking execute on the pinned GPU. A run with CPU fallback is invalid rather than a slower equivalent.
+_Avoid_: CUDA-capable run, CPU fallback
+
+**Evaluation Cache**:
+A disposable intermediate artifact from a Retrieval Evaluation Run that is reusable only while its dataset, models, and retrieval configuration have the same identity.
+_Avoid_: Retrieval Baseline, application Memory
+
+**Candidate Retrieval Stage**:
+The first retrieval phase, which combines Scope-bounded E5 dense and BM25 rankings with reciprocal-rank fusion to produce an ordered candidate pool.
+_Avoid_: E5 stage, Reranking Stage
+
+**Reranking Stage**:
+The second retrieval phase, which uses BGE to reorder a fixed candidate pool produced by the Candidate Retrieval Stage.
+_Avoid_: Candidate Retrieval Stage, hybrid retrieval

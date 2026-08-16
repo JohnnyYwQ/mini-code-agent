@@ -8,6 +8,18 @@ from core.memory.vector_store import MemorySearchResult
 
 
 class BGERerankerTests(TestCase):
+    def test_strict_cuda_requires_cuda_zero_and_fp16(self):
+        with self.assertRaisesRegex(ValueError, "cuda:0"):
+            BGEReranker(require_cuda=True, use_fp16=True, device="cuda:1")
+        with self.assertRaisesRegex(ValueError, "FP16"):
+            BGEReranker(require_cuda=True, use_fp16=False, device="cuda:0")
+
+    def test_rejects_invalid_inference_sizes(self):
+        with self.assertRaisesRegex(ValueError, "batch_size"):
+            BGEReranker(batch_size=0)
+        with self.assertRaisesRegex(ValueError, "max_length"):
+            BGEReranker(max_length=0)
+
     def test_lazily_loads_once_and_maps_scores_back_to_ranked_results(self):
         factory_calls = []
 

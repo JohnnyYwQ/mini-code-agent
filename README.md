@@ -18,7 +18,7 @@ Mini Code Agent 0.2 是一个用于学习和本地开发的小型 Django 编码�
 - Web 左侧栏按工作区分组全部 Conversation，并支持跨工作区恢复
 - CLI 默认新建 Conversation，并可列出或恢复当前工作区的旧 Conversation
 - Web 与 CLI 共享一个不可登录的 Django 本地 User
-- User/Space 两级 Memory：每轮自动召回，模型可调用无参数 `remember`
+- User/Space 两级 Memory：每轮自动混合检索并使用 BGE 重排，模型可调用无参数 `remember`
 - 基于 Anthropic Messages API 的 `tool_use` / `tool_result` 智能体循环
 - 本地工具：
   - `bash`：在工作区运行 shell 命令
@@ -41,6 +41,7 @@ Mini Code Agent 0.2 是一个用于学习和本地开发的小型 Django 编码�
 - Python 3.13+
 - Django 5.2
 - Anthropic Python SDK
+- Qdrant、FastEmbed 和 FlagEmbedding
 - uv
 - python-dotenv
 - prompt_toolkit
@@ -78,7 +79,7 @@ Mini Code Agent 0.2 是一个用于学习和本地开发的小型 Django 编码�
     │   ├── static/chat/
     │   ├── urls.py
     │   └── views.py
-    └── core/
+    ├── core/
         ├── agent.py
         ├── agent_runtime.py
         ├── compaction.py
@@ -86,6 +87,8 @@ Mini Code Agent 0.2 是一个用于学习和本地开发的小型 Django 编码�
         ├── frontmatter.py
         ├── skills.py
         └── todo.py
+    └── evals/
+        └── memory_retrieval/
 ```
 
 关键文件：
@@ -93,6 +96,7 @@ Mini Code Agent 0.2 是一个用于学习和本地开发的小型 Django 编码�
 - `config/core/agent.py`：工具定义、hook 和 CLI 入口
 - `config/core/agent_runtime.py`：绑定 Conversation 工作区的智能体循环、Memory 召回与 `remember`
 - `config/core/memory/`：Memory 提取、混合检索、Qdrant adapter 和 production composition
+- `config/evals/memory_retrieval/`：内置检索用例、LongMemEval adapter、数据下载与评测入口
 - `config/chat/application.py`：可信 User、Memory Space、Conversation、transcript 与 Turn 编排
 - `config/chat/composition.py`：Web/CLI 共用的 Agent Runtime 与 Memory 装配入口
 - `config/core/compaction.py`：会话快照、工具结果裁剪和上下文压缩
@@ -111,7 +115,7 @@ Mini Code Agent 0.2 是一个用于学习和本地开发的小型 Django 编码�
 
 1. Web 或 CLI 选择/创建 Conversation；应用层从它可信地派生本地 User、Memory Space 与工作区。
 2. 用户消息先持久化；若 Agent 失败，它会作为未回答消息保留。
-3. 每个 Turn 自动召回 User Memory 与当前 Space Memory，并作为临时 system context 注入。
+3. 每个 Turn 自动混合检索 User Memory 与当前 Space Memory，默认使用 `BAAI/bge-reranker-v2-m3` 重排并召回最多 5 条，作为临时 system context 注入。
 4. Conversation 专属 Agent Runtime 在对应工作区运行文件、shell、skills、todo 与 compaction。
 5. 模型可调用无参数 `remember`；handler 从最多 5 个已完成 Turn 加当前 Turn 的可见文本提取 Memory。
 6. Agent 成功后，本轮 assistant/tool-result 顶层消息作为一个有序批次持久化；失败时不保存部分生成 transcript。
@@ -126,6 +130,8 @@ uv sync --locked
 ```
 
 uv 会在项目根目录创建或更新 `.venv`。通常不需要手动激活虚拟环境，后续命令可以通过 `uv run` 执行。
+
+BGE reranker 按需加载；第一次发生 Memory 召回或运行 BGE 评测时会下载模型。请预留数 GB 磁盘空间，后续运行会复用本地缓存。
 
 创建本地环境变量文件：
 
@@ -184,6 +190,58 @@ uv run --project /path/to/mini-code-agent \
 ```
 
 Conversation 和 Memory Space 会绑定到执行命令时的当前工作区，而依赖仍从 `mini-code-agent` 项目加载。
+
+## Memory 检索评测
+
+评测使用独立的内存 Qdrant，不会读写实际的持久化 Memory。先运行 10 个内置用例的混合检索基线：
+
+```bash
+uv run --locked python config/evals/memory_retrieval/run.py
+```
+
+在同一个索引上对比不重排与默认 BGE reranker：
+
+```bash
+uv run --locked python config/evals/memory_retrieval/run.py \
+  --reranker none \
+  --reranker bge
+```
+
+FlashRank 是可选依赖，默认模型为 `ms-marco-MultiBERT-L-12`：
+
+```bash
+uv run --locked --extra flashrank \
+  python config/evals/memory_retrieval/run.py \
+  --reranker flashrank
+```
+
+下载项目锁定且校验 SHA-256 的 LongMemEval-S 数据集，然后先运行 10 题：
+
+```bash
+uv run --locked python \
+  config/evals/memory_retrieval/download_longmemeval.py
+
+uv run --locked python config/evals/memory_retrieval/run.py \
+  --longmemeval config/evals/memory_retrieval/data/longmemeval_s_cleaned.json \
+  --max-cases 10 \
+  --reranker none \
+  --reranker bge
+```
+
+删除 `--max-cases 10` 即运行全部可评分用例。下载的数据约 265 MiB，保存在被 Git 忽略的 `config/evals/memory_retrieval/data/` 中。交互式终端会显示建库和逐题评测进度；CI 或重定向输出不会显示进度条。
+
+内置报告包含 Hit@1、Recall@5、MRR@5 和 ScopeLeak；LongMemEval 还会输出 session-level 检索指标。
+
+固定的 Ubuntu 20.04 / RTX 2070 SUPER 主机使用独立的 CUDA 基线入口。它会先运行覆盖六种计分题型、assistant-only 排除项和 abstention 排除项的确定性 smoke，再运行全部可评分题目；E5/BM25/RRF 候选与 BGE 重排分别处于两个进程：
+
+```bash
+export MINI_CODE_AGENT_PROXY_URL=http://127.0.0.1:7890  # 按反向隧道的本地端口修改
+./scripts/run_longmemeval_cu124.sh
+```
+
+脚本复用 `~/.local/share/mini-code-agent/venvs/cu124`，先用锁文件检查环境，仅在不匹配时执行增量 `uv sync`。它也会优先识别已有的 `/tmp/fastembed_cache`、`~/.cache/huggingface/hub` 和仓库内已校验的数据集，不会重复下载完整模型。默认要求工作树干净并至少有 40 GiB 可用空间；需要调试未提交代码时可设置 `MINI_CODE_AGENT_ALLOW_DIRTY=1`，但结果会标为 `provisional`。
+
+最终的 `full/baseline.json` 同时包含 E5、BM25、E5+BM25+RRF 和 E5+BM25+RRF+BGE 的官方 `RecallAll@5`、`NDCG@5`、`RecallAll@10`、`NDCG@10` 公式结果、逐题记录、精确模型 revision 和实际 CUDA provider。BGE 默认重排固定的 RRF top 50 候选，RRF rank constant 为 60；两者都进入缓存身份。该结果称为“official-data/official-metric LongMemEval retrieval baseline”，只评测检索，不是 LongMemEval 端到端 QA 或官方 leaderboard 分数。中断后再次使用同一个 `MINI_CODE_AGENT_RUN_ID` 会从内容寻址的逐题 JSONL 继续。
 
 ## 调用 JSON API
 

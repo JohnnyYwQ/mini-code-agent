@@ -8,8 +8,8 @@ requires-python = ">=3.13"
 dependencies = [
     "anthropic>=0.45",
     "django>=5.2,<6.0",
-    "fastembed>=0.8.0",
     "flagembedding>=1.4.0",
+    "huggingface-hub>=0.36,<1",
     "jieba>=0.42.1",
     "prompt-toolkit>=3.0.53",
     "python-dotenv>=1.0",
@@ -19,11 +19,19 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+cuda-eval = [
+    "fastembed-gpu==0.8.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "onnxruntime-gpu==1.26.0 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "torch==2.6.0+cu124 ; sys_platform == 'linux' and platform_machine == 'x86_64'",
+]
 flashrank = [
     "flashrank>=0.2.10",
 ]
 
 [dependency-groups]
+cpu = [
+    "fastembed==0.8.0",
+]
 dev = [
     "coverage",
     "mypy",
@@ -33,6 +41,25 @@ dev = [
     "types-tqdm",
     "types-PyYAML",
 ]
+
+[tool.uv]
+default-groups = ["dev", "cpu"]
+conflicts = [
+    [
+        { group = "cpu" },
+        { extra = "cuda-eval" },
+    ],
+]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu124", extra = "cuda-eval" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
 
 [tool.ruff]
 target-version = "py313"

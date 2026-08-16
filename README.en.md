@@ -18,7 +18,7 @@ The agent can invoke local tools, observe their results, and continue the conver
 - A Web sidebar grouped by workspace with cross-workspace resume
 - CLI creation by default plus list/resume within the launch workspace
 - One shared, non-login Django local User for Web and CLI
-- User/Space Memory with automatic per-Turn recall and a no-argument `remember` tool
+- User/Space Memory with automatic hybrid retrieval, BGE reranking, and a no-argument `remember` tool
 - Anthropic Messages API agent loop using `tool_use` and `tool_result`
 - Local tools:
   - `bash`: run shell commands in the workspace
@@ -41,6 +41,7 @@ The agent can invoke local tools, observe their results, and continue the conver
 - Python 3.13+
 - Django 5.2
 - Anthropic Python SDK
+- Qdrant, FastEmbed, and FlagEmbedding
 - uv
 - python-dotenv
 - prompt_toolkit
@@ -78,7 +79,7 @@ The agent can invoke local tools, observe their results, and continue the conver
     │   ├── static/chat/
     │   ├── urls.py
     │   └── views.py
-    └── core/
+    ├── core/
         ├── agent.py
         ├── agent_runtime.py
         ├── compaction.py
@@ -86,6 +87,8 @@ The agent can invoke local tools, observe their results, and continue the conver
         ├── frontmatter.py
         ├── skills.py
         └── todo.py
+    └── evals/
+        └── memory_retrieval/
 ```
 
 Key files:
@@ -93,6 +96,7 @@ Key files:
 - `config/core/agent.py`: tool definitions, hooks, and the CLI entry point
 - `config/core/agent_runtime.py`: Conversation-workspace agent loop, Memory recall, and the `remember` tool
 - `config/core/memory/`: Memory extraction, hybrid retrieval, Qdrant adapter, and production composition
+- `config/evals/memory_retrieval/`: built-in retrieval cases, the LongMemEval adapter, dataset download, and evaluation entry point
 - `config/chat/application.py`: trusted User, Memory Space, Conversation, transcript, and Turn orchestration
 - `config/chat/composition.py`: shared Web/CLI Agent Runtime and Memory composition
 - `config/core/compaction.py`: transcript snapshots, tool-result trimming, and context compaction
@@ -111,7 +115,7 @@ Key files:
 
 1. Web or CLI selects/creates a Conversation; the application derives its trusted local User, Memory Space, and workspace.
 2. The user message is persisted before the agent runs and remains unanswered if the run fails.
-3. Each Turn recalls User Memory and current Space Memory into ephemeral system context.
+3. Each Turn performs hybrid retrieval over User Memory and current Space Memory, reranks with `BAAI/bge-reranker-v2-m3` by default, and injects at most five results into ephemeral system context.
 4. A Conversation-bound Agent Runtime runs files, shell, skills, todo, and compaction in the selected workspace.
 5. The model may call the no-argument `remember` tool over visible text from up to five completed Turns plus the current Turn.
 6. After success, generated assistant/tool-result messages are persisted as one ordered batch; partial generated transcripts are discarded on failure.
@@ -126,6 +130,8 @@ uv sync --locked
 ```
 
 uv creates or updates `.venv` in the project root. You normally do not need to activate it manually because the remaining commands use `uv run`.
+
+The BGE reranker is loaded lazily. Its model is downloaded on the first Memory recall or BGE evaluation, so reserve several GB of disk space; later runs reuse the local cache.
 
 Create a local environment file:
 
@@ -184,6 +190,58 @@ uv run --project /path/to/mini-code-agent \
 ```
 
 The Conversation and Memory Space bind to the current workspace where the command runs, while dependencies still come from the `mini-code-agent` project.
+
+## Memory Retrieval Evaluation
+
+Evaluations use an isolated in-memory Qdrant instance and never read or write persisted application Memory. Run the 10 built-in cases without reranking as a hybrid-retrieval baseline:
+
+```bash
+uv run --locked python config/evals/memory_retrieval/run.py
+```
+
+Compare no reranking with the default BGE reranker over the same index:
+
+```bash
+uv run --locked python config/evals/memory_retrieval/run.py \
+  --reranker none \
+  --reranker bge
+```
+
+FlashRank is an optional dependency and defaults to `ms-marco-MultiBERT-L-12`:
+
+```bash
+uv run --locked --extra flashrank \
+  python config/evals/memory_retrieval/run.py \
+  --reranker flashrank
+```
+
+Download the project's pinned, SHA-256-verified LongMemEval-S dataset, then start with 10 cases:
+
+```bash
+uv run --locked python \
+  config/evals/memory_retrieval/download_longmemeval.py
+
+uv run --locked python config/evals/memory_retrieval/run.py \
+  --longmemeval config/evals/memory_retrieval/data/longmemeval_s_cleaned.json \
+  --max-cases 10 \
+  --reranker none \
+  --reranker bge
+```
+
+Remove `--max-cases 10` to run every scored case. The download is about 265 MiB and is stored under the Git-ignored `config/evals/memory_retrieval/data/` directory. Interactive terminals show indexing and per-case progress; CI and redirected output omit the progress bars.
+
+The built-in report includes Hit@1, Recall@5, MRR@5, and ScopeLeak. LongMemEval also reports session-level retrieval metrics.
+
+The pinned Ubuntu 20.04 / RTX 2070 SUPER host has a separate CUDA baseline entry point. It first runs a deterministic smoke that covers all six scored question types, one assistant-only exclusion, and one abstention exclusion, then runs every eligible case. E5/BM25/RRF candidate generation and BGE reranking run in separate processes:
+
+```bash
+export MINI_CODE_AGENT_PROXY_URL=http://127.0.0.1:7890  # match the reverse tunnel's local port
+./scripts/run_longmemeval_cu124.sh
+```
+
+The runner reuses `~/.local/share/mini-code-agent/venvs/cu124`, checks it against the lock first, and performs an incremental `uv sync` only when it differs. It also detects the existing `/tmp/fastembed_cache`, `~/.cache/huggingface/hub`, and verified in-repository dataset before downloading anything. By default it requires a clean worktree and at least 40 GiB free; set `MINI_CODE_AGENT_ALLOW_DIRTY=1` only for development runs, which are labeled `provisional`.
+
+The final `full/baseline.json` contains E5, BM25, E5+BM25+RRF, and E5+BM25+RRF+BGE results under the official `RecallAll@5`, `NDCG@5`, `RecallAll@10`, and `NDCG@10` formulas, per-case records, exact model revisions, and verified CUDA providers. BGE reranks a fixed RRF top-50 pool by default, using RRF rank constant 60; both values participate in the cache identity. It is an “official-data/official-metric LongMemEval retrieval baseline”: retrieval only, not an end-to-end LongMemEval QA or official leaderboard score. Reuse the same `MINI_CODE_AGENT_RUN_ID` after an interruption to resume the content-addressed per-case JSONL artifacts.
 
 ## Calling the JSON API
 
