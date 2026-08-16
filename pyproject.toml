@@ -9,11 +9,18 @@ dependencies = [
     "anthropic>=0.45",
     "django>=5.2,<6.0",
     "fastembed>=0.8.0",
+    "flagembedding>=1.4.0",
     "jieba>=0.42.1",
     "prompt-toolkit>=3.0.53",
     "python-dotenv>=1.0",
     "pyyaml>=6.0.3",
     "qdrant-client>=1.19.0",
+    "transformers>=4.44.2,<5",
+]
+
+[project.optional-dependencies]
+flashrank = [
+    "flashrank>=0.2.10",
 ]
 
 [dependency-groups]
@@ -22,6 +29,8 @@ dev = [
     "mypy",
     "pre-commit",
     "ruff",
+    "tqdm>=4.67.1",
+    "types-tqdm",
     "types-PyYAML",
 ]
 

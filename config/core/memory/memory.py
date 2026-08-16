@@ -12,6 +12,7 @@ from core.memory.extraction import (
     MemoryExtractor,
     MemoryMessage,
 )
+from core.memory.reranker import MemoryReranker
 from core.memory.vector_store import MemorySearchResult, MemoryVectorStore
 
 
@@ -37,16 +38,20 @@ class MemoryContext:
 
 
 class Memory:
+    _RERANK_CANDIDATES_PER_SCOPE = 10
+
     def __init__(
         self,
         *,
         extractor: MemoryExtractor,
         dense_encoder: DenseEncoder,
         vector_store: MemoryVectorStore,
+        reranker: MemoryReranker | None = None,
     ) -> None:
         self.extractor = extractor
         self.dense_encoder = dense_encoder
         self.vector_store = vector_store
+        self.reranker = reranker
 
     def close(self) -> None:
         """Release resources owned by the configured vector-store adapter."""
@@ -174,12 +179,14 @@ class Memory:
         query: str,
         context: MemoryContext,
         limit: int = 5,
+        rerank: bool = False,
     ) -> builtins.list[MemorySearchResult]:
         """Recall User and current Space Memories for one agent Turn."""
+        scope_limit = self._RERANK_CANDIDATES_PER_SCOPE if rerank else limit
         user_results = self._search_scope(
             query=query,
             filters={"user_id": context.user_id, "space_id": None},
-            limit=limit,
+            limit=scope_limit,
         )
         space_results = self._search_scope(
             query=query,
@@ -187,7 +194,7 @@ class Memory:
                 "user_id": context.user_id,
                 "space_id": context.space_id,
             },
-            limit=limit,
+            limit=scope_limit,
         )
 
         result_by_text: dict[str, MemorySearchResult] = {}
@@ -208,11 +215,20 @@ class Memory:
             score_by_text,
             key=score_by_text.__getitem__,
             reverse=True,
-        )[:limit]
-        return [
+        )[: scope_limit * 2]
+        candidates = [
             replace(result_by_text[text], score=score_by_text[text])
             for text in ranked_texts
         ]
+        if not rerank:
+            return candidates[:limit]
+        if self.reranker is None:
+            raise RuntimeError("rerank=True requires a configured MemoryReranker")
+        return self.reranker.rerank(
+            query=query,
+            candidates=candidates,
+            limit=limit,
+        )
 
     def _reciprocal_rank_fusion(
         self,

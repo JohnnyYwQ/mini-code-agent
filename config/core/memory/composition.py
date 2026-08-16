@@ -7,6 +7,7 @@ import jieba  # type: ignore[import-untyped]
 from fastembed import SparseTextEmbedding
 from qdrant_client import QdrantClient
 
+from core.memory.bge_reranker import BGEReranker
 from core.memory.config import AnthropicLLMConfig
 from core.memory.embedder import (
     MULTILINGUAL_E5_BASE_DIMENSION,
@@ -62,4 +63,5 @@ def build_memory(*, config: MemoryCompositionConfig) -> Memory:
         extractor=extractor,
         dense_encoder=dense_encoder,
         vector_store=vector_store,
+        reranker=BGEReranker(),
     )
