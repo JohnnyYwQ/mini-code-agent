@@ -21,7 +21,7 @@ from evals.memory_retrieval.cuda_host import require_pinned_cuda_host
 from evals.memory_retrieval.model_snapshots import BGE_SNAPSHOT, resolve_snapshot
 from tqdm import tqdm
 
-RERANK_STAGE_SCHEMA = 1
+RERANK_STAGE_SCHEMA = 2
 RERANKING_NAME = "rrf_bge"
 EXPECTED_RERANK_DISTRIBUTIONS = {
     "FlagEmbedding": "1.4.0",
@@ -128,28 +128,33 @@ def _memory_texts_by_case(dataset: dict[str, Any]) -> dict[str, dict[str, str]]:
         case_id = case_by_space.get(memory["space_id"])
         if case_id is None:
             raise RuntimeError(f"memory has unknown evaluation space: {memory}")
-        session_id = memory["source_session_id"]
-        if session_id in result[case_id]:
-            raise RuntimeError(f"{case_id}: duplicate source session id {session_id}")
-        result[case_id][session_id] = memory["text"]
+        memory_id = memory["id"]
+        if memory_id in result[case_id]:
+            raise RuntimeError(f"{case_id}: duplicate memory id {memory_id}")
+        result[case_id][memory_id] = memory["text"]
     return result
 
 
 def _rerank_record(
     *,
     candidate_record: dict[str, Any],
-    memory_text_by_session: dict[str, str],
+    memory_text_by_id: dict[str, str],
     reranker: BGEReranker,
 ) -> dict[str, Any]:
-    if set(candidate_record["corpus_ids"]) != set(memory_text_by_session):
+    if set(candidate_record["corpus_memory_ids"]) != set(memory_text_by_id):
         raise RuntimeError(
             f"{candidate_record['case_id']}: candidate corpus does not match dataset"
         )
     rrf_items = candidate_record["rankings"]["rrf"]
+    session_id_by_memory_id = {item["memory_id"]: item["id"] for item in rrf_items}
+    if len(session_id_by_memory_id) != len(rrf_items):
+        raise RuntimeError(
+            f"{candidate_record['case_id']}: duplicate RRF memory occurrence"
+        )
     candidates = [
         MemorySearchResult(
-            id=item["id"],
-            data=memory_text_by_session[item["id"]],
+            id=item["memory_id"],
+            data=memory_text_by_id[item["memory_id"]],
             scope="space",
             score=float(item["score"]),
             metadata={},
@@ -169,8 +174,19 @@ def _rerank_record(
         raise RuntimeError(
             f"{candidate_record['case_id']}: BGE returned non-finite scores"
         )
+    if {item.id for item in ranked} != set(session_id_by_memory_id):
+        raise RuntimeError(
+            f"{candidate_record['case_id']}: BGE changed the candidate occurrences"
+        )
     rankings = dict(candidate_record["rankings"])
-    rankings[RERANKING_NAME] = [{"id": item.id, "score": item.score} for item in ranked]
+    rankings[RERANKING_NAME] = [
+        {
+            "id": session_id_by_memory_id[item.id],
+            "memory_id": item.id,
+            "score": item.score,
+        }
+        for item in ranked
+    ]
     return {**candidate_record, "schema": RERANK_STAGE_SCHEMA, "rankings": rankings}
 
 
@@ -264,7 +280,7 @@ def run_rerank_stage(
                     continue
                 record = _rerank_record(
                     candidate_record=candidate_record_by_id[question_id],
-                    memory_text_by_session=text_by_case[question_id],
+                    memory_text_by_id=text_by_case[question_id],
                     reranker=reranker,
                 )
                 runtime.update(reranker.runtime)

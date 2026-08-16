@@ -27,6 +27,26 @@ class OfficialLongMemEvalMetricsTests(TestCase):
         self.assertEqual(metrics["recall_all@5"], 0.0)
         self.assertEqual(metrics["ndcg_any@5"], 0.5)
 
+    def test_preserves_duplicate_corpus_occurrences_in_ranking(self):
+        metrics = evaluate_ranking(
+            ["distractor", "distractor", "target"],
+            ["target"],
+            corpus_ids=["distractor", "target", "distractor"],
+        )
+
+        self.assertEqual(metrics["recall_all@5"], 1.0)
+        self.assertAlmostEqual(metrics["ndcg_any@5"], 1 / math.log2(3))
+
+    def test_official_ndcg_counts_repeated_relevant_corpus_occurrences(self):
+        metrics = evaluate_ranking(
+            ["target"],
+            ["target"],
+            corpus_ids=["target", "target", "distractor"],
+        )
+
+        self.assertEqual(metrics["recall_all@5"], 1.0)
+        self.assertEqual(metrics["ndcg_any@5"], 0.5)
+
     def test_aggregates_overall_and_question_type_metrics(self):
         records = [
             {

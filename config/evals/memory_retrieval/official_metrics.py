@@ -22,18 +22,26 @@ def evaluate_ranking(
     retrieved_ids: Sequence[str],
     relevant_ids: Sequence[str],
     *,
+    corpus_ids: Sequence[str] | None = None,
     cutoffs: Sequence[int] = OFFICIAL_CUTOFFS,
 ) -> dict[str, float]:
     """Apply LongMemEval's official session-level retrieval formulas."""
     if not relevant_ids:
         raise ValueError("official retrieval metrics require at least one target")
-    if len(set(relevant_ids)) != len(relevant_ids):
-        raise ValueError("relevant_ids must not contain duplicates")
-    if len(set(retrieved_ids)) != len(retrieved_ids):
-        raise ValueError("retrieved_ids must not contain duplicates")
 
     relevant_set = set(relevant_ids)
-    ideal_relevances = [1.0] * len(relevant_set)
+    if corpus_ids is None:
+        ideal_relevances = [1.0] * len(relevant_set)
+    else:
+        corpus_id_set = set(corpus_ids)
+        if not relevant_set.issubset(corpus_id_set):
+            raise ValueError("relevant_ids must exist in corpus_ids")
+        if not set(retrieved_ids).issubset(corpus_id_set):
+            raise ValueError("retrieved_ids must exist in corpus_ids")
+        ideal_relevances = sorted(
+            (float(corpus_id in relevant_set) for corpus_id in corpus_ids),
+            reverse=True,
+        )
     metrics: dict[str, float] = {}
     for cutoff in cutoffs:
         if cutoff <= 0:
@@ -71,7 +79,11 @@ def evaluate_records(
     metrics_by_type: dict[str, list[dict[str, float]]] = defaultdict(list)
     for record in records:
         retrieved_ids = [item["id"] for item in record["rankings"][ranking_name]]
-        metrics = evaluate_ranking(retrieved_ids, record["relevant_ids"])
+        metrics = evaluate_ranking(
+            retrieved_ids,
+            record["relevant_ids"],
+            corpus_ids=record.get("corpus_ids"),
+        )
         question_type = record["question_type"]
         metrics_by_type[question_type].append(metrics)
         case_metrics.append(

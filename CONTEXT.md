@@ -64,6 +64,14 @@ _Avoid_: Deployment, production run, performance benchmark, Turn
 A history session identified by an evaluation dataset as relevant to one retrieval query. Its evidence may occur in either user or agent-visible text.
 _Avoid_: User-only evidence, Memory
 
+**Haystack Session Occurrence**:
+One position in an evaluation query's retrieval haystack, whether relevant or distractor. Multiple occurrences may share a Source Session ID and content while remaining separate retrieval candidates.
+_Avoid_: Source Session ID, Memory
+
+**Source Session ID**:
+A dataset-provided label that relates retrieved Haystack Session Occurrences to evidence labels during scoring. It is not guaranteed to be unique within one query's haystack.
+_Avoid_: Memory ID, Haystack Session Occurrence
+
 **Abstention Case**:
 An evaluation question intentionally lacking an Evidence Session and expecting the system not to answer from unsupported context.
 _Avoid_: Retrieval miss, empty result

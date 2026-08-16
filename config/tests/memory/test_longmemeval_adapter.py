@@ -88,3 +88,30 @@ class LongMemEvalAdapterTests(TestCase):
             {case["reason"] for case in dataset["excluded_cases"]},
             {"abstention", "without-user-evidence"},
         )
+
+    def test_adapter_preserves_duplicate_session_label_occurrences(self):
+        source_case = _source_case(
+            "duplicate-label",
+            "single-session-user",
+        )
+        source_case["haystack_session_ids"].append("duplicate-label-other")
+        source_case["haystack_dates"].append("2023/12/30 (Sat) 00:00")
+        source_case["haystack_sessions"].append(
+            [{"role": "user", "content": "other user text"}]
+        )
+        self.path.write_text(json.dumps([source_case]), encoding="utf-8")
+
+        dataset = load_longmemeval(self.path)
+
+        self.assertEqual(
+            [memory["source_session_id"] for memory in dataset["memories"]],
+            [
+                "duplicate-label-answer",
+                "duplicate-label-other",
+                "duplicate-label-other",
+            ],
+        )
+        self.assertEqual(
+            len({memory["id"] for memory in dataset["memories"]}),
+            3,
+        )

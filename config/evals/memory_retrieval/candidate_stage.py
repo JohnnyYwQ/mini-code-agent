@@ -38,7 +38,7 @@ from fastembed import SparseTextEmbedding
 from qdrant_client import QdrantClient, models
 from tqdm import tqdm
 
-CANDIDATE_STAGE_SCHEMA = 2
+CANDIDATE_STAGE_SCHEMA = 3
 RRF_RANK_CONSTANT = 60
 MINIMUM_CANDIDATE_COUNT = 10
 EXPECTED_CUDA_DISTRIBUTIONS = {
@@ -230,6 +230,27 @@ def reciprocal_rank_fusion(
     return [{"id": item_id, "score": scores[item_id]} for item_id in ranked_ids[:limit]]
 
 
+def _project_session_labels(
+    ranking: Sequence[dict[str, Any]],
+    *,
+    memory_id_to_session_id: dict[str, str],
+) -> list[dict[str, Any]]:
+    projected: list[dict[str, Any]] = []
+    for item in ranking:
+        memory_id = item["id"]
+        session_id = memory_id_to_session_id.get(memory_id)
+        if session_id is None:
+            raise RuntimeError(f"ranking contains unknown memory id: {memory_id}")
+        projected.append(
+            {
+                "id": session_id,
+                "memory_id": memory_id,
+                "score": item["score"],
+            }
+        )
+    return projected
+
+
 def _retrieve_case(
     *,
     dense_encoder: FastEmbedE5Encoder,
@@ -249,11 +270,10 @@ def _retrieve_case(
     memory_id_to_session_id = {
         memory["id"]: memory["source_session_id"] for memory in corpus
     }
+    corpus_memory_ids = [memory["id"] for memory in corpus]
     corpus_session_ids = [memory["source_session_id"] for memory in corpus]
     if not corpus:
         raise RuntimeError(f"{case['id']}: LongMemEval corpus is empty")
-    if len(set(corpus_session_ids)) != len(corpus_session_ids):
-        raise RuntimeError(f"{case['id']}: LongMemEval session ids are not unique")
     if len(memory_id_to_session_id) != len(corpus):
         raise RuntimeError(f"{case['id']}: LongMemEval memory ids are not unique")
 
@@ -310,36 +330,44 @@ def _retrieve_case(
             sparse_points = []
 
         dense_scores = {
-            memory_id_to_session_id[str(point.id)]: float(point.score)
-            for point in dense_response.points
+            str(point.id): float(point.score) for point in dense_response.points
         }
-        sparse_scores = {
-            memory_id_to_session_id[str(point.id)]: float(point.score)
-            for point in sparse_points
-        }
-        if set(dense_scores) != set(corpus_session_ids):
-            missing_ids = set(corpus_session_ids).difference(dense_scores)
-            unexpected_ids = set(dense_scores).difference(corpus_session_ids)
+        sparse_scores = {str(point.id): float(point.score) for point in sparse_points}
+        if set(dense_scores) != set(corpus_memory_ids):
+            missing_ids = set(corpus_memory_ids).difference(dense_scores)
+            unexpected_ids = set(dense_scores).difference(corpus_memory_ids)
             raise RuntimeError(
                 f"{case['id']}: dense retrieval did not return the complete corpus; "
                 f"missing={sorted(missing_ids)}, unexpected={sorted(unexpected_ids)}"
             )
-        e5_ranking = _rank_items(
+        e5_memory_ranking = _rank_items(
             point_scores=dense_scores,
-            corpus_ids=corpus_session_ids,
+            corpus_ids=corpus_memory_ids,
             missing_score=0.0,
             limit=candidate_count,
         )
-        bm25_ranking = _rank_items(
+        bm25_memory_ranking = _rank_items(
             point_scores=sparse_scores,
-            corpus_ids=corpus_session_ids,
+            corpus_ids=corpus_memory_ids,
             missing_score=0.0,
             limit=candidate_count,
         )
-        rrf_ranking = reciprocal_rank_fusion(
-            e5_ranking,
-            bm25_ranking,
+        rrf_memory_ranking = reciprocal_rank_fusion(
+            e5_memory_ranking,
+            bm25_memory_ranking,
             limit=candidate_count,
+        )
+        e5_ranking = _project_session_labels(
+            e5_memory_ranking,
+            memory_id_to_session_id=memory_id_to_session_id,
+        )
+        bm25_ranking = _project_session_labels(
+            bm25_memory_ranking,
+            memory_id_to_session_id=memory_id_to_session_id,
+        )
+        rrf_ranking = _project_session_labels(
+            rrf_memory_ranking,
+            memory_id_to_session_id=memory_id_to_session_id,
         )
     finally:
         store.close()
@@ -352,7 +380,9 @@ def _retrieve_case(
         ),
         "query": case["query"],
         "relevant_ids": case["relevant_session_ids"],
+        "relevant_memory_ids": case.get("relevant_memory_ids", []),
         "corpus_ids": corpus_session_ids,
+        "corpus_memory_ids": corpus_memory_ids,
         "rankings": {
             "e5": e5_ranking,
             "bm25": bm25_ranking,
