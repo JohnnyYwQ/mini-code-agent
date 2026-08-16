@@ -235,13 +235,28 @@ The built-in report includes Hit@1, Recall@5, MRR@5, and ScopeLeak. LongMemEval 
 The pinned Ubuntu 20.04 / RTX 2070 SUPER host has a separate CUDA baseline entry point. It first runs a deterministic smoke that covers all six scored question types, one assistant-only exclusion, and one abstention exclusion, then runs every eligible case. E5/BM25/RRF candidate generation and BGE reranking run in separate processes:
 
 ```bash
-export MINI_CODE_AGENT_PROXY_URL=http://127.0.0.1:7890  # match the reverse tunnel's local port
+export MINI_CODE_AGENT_PROXY_URL=http://127.0.0.1:7897  # match the reverse tunnel's local port
 ./scripts/run_longmemeval_cu124.sh
 ```
 
 The runner reuses `~/.local/share/mini-code-agent/venvs/cu124`, checks it against the lock first, and performs an incremental `uv sync` only when it differs. It also detects the existing `/tmp/fastembed_cache`, `~/.cache/huggingface/hub`, and verified in-repository dataset before downloading anything. By default it requires a clean worktree and at least 40 GiB free; set `MINI_CODE_AGENT_ALLOW_DIRTY=1` only for development runs, which are labeled `provisional`.
 
 The final `full/baseline.json` contains E5, BM25, E5+BM25+RRF, and E5+BM25+RRF+BGE results under the official `RecallAll@5`, `NDCG@5`, `RecallAll@10`, and `NDCG@10` formulas, per-case records, exact model revisions, and verified CUDA providers. E5's provider list includes ONNX Runtime's implicit CPU provider for shape and control nodes; a preflight profile must prove that compute-heavy operators run on CUDA and none run on CPU. BGE reranks a fixed RRF top-50 pool by default, using RRF rank constant 60; both values participate in the cache identity. It is an “official-data/official-metric LongMemEval retrieval baseline”: retrieval only, not an end-to-end LongMemEval QA or official leaderboard score. Reuse the same `MINI_CODE_AGENT_RUN_ID` after an interruption to resume the content-addressed per-case JSONL artifacts.
+
+### Formal CUDA Baseline Results (2026-08-16)
+
+`20260816-cu124-v1` is a `formal` / `full` run. Of the 500 source cases in the official cleaned LongMemEval-S dataset, 419 entered retrieval scoring; the protocol excluded 30 abstention cases and 51 cases without user-side target evidence.
+
+| Retrieval chain | RecallAll@5 | NDCG@5 | RecallAll@10 | NDCG@10 |
+| --- | ---: | ---: | ---: | ---: |
+| BM25 | 87.35% | 89.33% | 92.12% | 90.44% |
+| E5 | 90.93% | 89.92% | 95.94% | 91.20% |
+| E5 + BM25 + RRF | 90.69% | 92.17% | 96.42% | 93.26% |
+| E5 + BM25 + RRF + BGE | **92.60%** | **94.74%** | **97.61%** | **95.69%** |
+
+The BGE chain leads all four primary metrics. Relative to RRF, it improves RecallAll@5, NDCG@5, RecallAll@10, and NDCG@10 by 1.91, 2.57, 1.19, and 2.42 percentage points, respectively. Its RecallAny@10 is 100%, but RecallAll@10 still misses at least one target session in 10 cases: seven multi-session and three temporal-reasoning cases. Further work should therefore prioritize multi-session coverage and temporal retrieval.
+
+The result was produced from code commit `7b1f9466f3f334bc9f6b58225397c3daee55dbd5` on Ubuntu 20.04 with an 8 GiB RTX 2070 SUPER, NVIDIA 550.142, and CUDA 12.4. Profiling confirms that E5's compute-heavy operators execute on CUDA, while BGE runs in FP16 on `cuda:0`. The dataset SHA-256 is `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`; the aggregate artifact SHA-256 is `e267d5696e37a0c006d354c5b21ca5bb8f2620f9a48dbdf5a881f1d6b18b9a34`.
 
 ## Calling the JSON API
 

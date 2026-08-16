@@ -235,13 +235,28 @@ uv run --locked python config/evals/memory_retrieval/run.py \
 固定的 Ubuntu 20.04 / RTX 2070 SUPER 主机使用独立的 CUDA 基线入口。它会先运行覆盖六种计分题型、assistant-only 排除项和 abstention 排除项的确定性 smoke，再运行全部可评分题目；E5/BM25/RRF 候选与 BGE 重排分别处于两个进程：
 
 ```bash
-export MINI_CODE_AGENT_PROXY_URL=http://127.0.0.1:7890  # 按反向隧道的本地端口修改
+export MINI_CODE_AGENT_PROXY_URL=http://127.0.0.1:7897  # 按反向隧道的本地端口修改
 ./scripts/run_longmemeval_cu124.sh
 ```
 
 脚本复用 `~/.local/share/mini-code-agent/venvs/cu124`，先用锁文件检查环境，仅在不匹配时执行增量 `uv sync`。它也会优先识别已有的 `/tmp/fastembed_cache`、`~/.cache/huggingface/hub` 和仓库内已校验的数据集，不会重复下载完整模型。默认要求工作树干净并至少有 40 GiB 可用空间；需要调试未提交代码时可设置 `MINI_CODE_AGENT_ALLOW_DIRTY=1`，但结果会标为 `provisional`。
 
 最终的 `full/baseline.json` 同时包含 E5、BM25、E5+BM25+RRF 和 E5+BM25+RRF+BGE 的官方 `RecallAll@5`、`NDCG@5`、`RecallAll@10`、`NDCG@10` 公式结果、逐题记录、精确模型 revision 和实际 CUDA provider。E5 的 provider 列表会包含 ONNX Runtime 用于形状与控制节点的隐式 CPU provider；运行前 profile 必须同时证明主计算算子位于 CUDA、CPU 没有主计算算子。BGE 默认重排固定的 RRF top 50 候选，RRF rank constant 为 60；两者都进入缓存身份。该结果称为“official-data/official-metric LongMemEval retrieval baseline”，只评测检索，不是 LongMemEval 端到端 QA 或官方 leaderboard 分数。中断后再次使用同一个 `MINI_CODE_AGENT_RUN_ID` 会从内容寻址的逐题 JSONL 继续。
+
+### 正式 CUDA 基线结果（2026-08-16）
+
+`20260816-cu124-v1` 是一次 `formal` / `full` 运行。官方 cleaned LongMemEval-S 的 500 个源样本中，419 个进入检索评分；30 个 abstention 和 51 个没有 user-side 目标证据的样本按评测协议排除。
+
+| 检索链 | RecallAll@5 | NDCG@5 | RecallAll@10 | NDCG@10 |
+| --- | ---: | ---: | ---: | ---: |
+| BM25 | 87.35% | 89.33% | 92.12% | 90.44% |
+| E5 | 90.93% | 89.92% | 95.94% | 91.20% |
+| E5 + BM25 + RRF | 90.69% | 92.17% | 96.42% | 93.26% |
+| E5 + BM25 + RRF + BGE | **92.60%** | **94.74%** | **97.61%** | **95.69%** |
+
+BGE 链在四项主指标上都最好；相比 RRF，它将 RecallAll@5、NDCG@5、RecallAll@10 和 NDCG@10 分别提高 1.91、2.57、1.19 和 2.42 个百分点。最终链的 RecallAny@10 为 100%，但 RecallAll@10 仍有 10 题未召回全部目标 session，其中 7 题为 multi-session、3 题为 temporal-reasoning；后续优化应优先改善多 session 覆盖和时间关系检索。
+
+该结果由代码提交 `7b1f9466f3f334bc9f6b58225397c3daee55dbd5` 在 Ubuntu 20.04、RTX 2070 SUPER 8 GiB、NVIDIA 550.142、CUDA 12.4 上产生。E5 的主计算算子经 profile 确认位于 CUDA，BGE 以 FP16 运行于 `cuda:0`。数据集 SHA-256 为 `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`，汇总产物 SHA-256 为 `e267d5696e37a0c006d354c5b21ca5bb8f2620f9a48dbdf5a881f1d6b18b9a34`。
 
 ## 调用 JSON API
 
