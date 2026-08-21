@@ -1,6 +1,6 @@
 # Mini Code Agent
 
-[中文](README.md) · [Architecture guide](docs/architecture.en.md) · [Memory and evaluation guide](docs/memory-and-evaluation.en.md)
+[中文](README.md) · [Architecture guide](docs/architecture.en.md) · [Memory and evaluation guide](docs/memory-and-evaluation.en.md) · [Usage and contributor guide](docs/usage.en.md)
 
 ![Mini Code Agent CLI demo](docs/assets/demo.gif)
 

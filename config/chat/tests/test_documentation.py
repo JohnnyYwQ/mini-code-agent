@@ -10,6 +10,8 @@ PUBLIC_DOCUMENTATION = (
     Path("docs/architecture.en.md"),
     Path("docs/memory-and-evaluation.md"),
     Path("docs/memory-and-evaluation.en.md"),
+    Path("docs/usage.md"),
+    Path("docs/usage.en.md"),
 )
 BILINGUAL_GUIDES = (
     (Path("docs/architecture.md"), Path("docs/architecture.en.md")),
@@ -17,6 +19,7 @@ BILINGUAL_GUIDES = (
         Path("docs/memory-and-evaluation.md"),
         Path("docs/memory-and-evaluation.en.md"),
     ),
+    (Path("docs/usage.md"), Path("docs/usage.en.md")),
 )
 RETRIEVAL_EVIDENCE_FACTS = (
     "20260816-cu124-v1",
@@ -27,6 +30,21 @@ RETRIEVAL_EVIDENCE_FACTS = (
     "94.74%",
     "97.61%",
     "95.69%",
+)
+USAGE_CONFIGURATION_FACTS = (
+    "MODEL_ID",
+    "ANTHROPIC_API_KEY",
+    "ANTHROPIC_BASE_URL",
+    "MEMORY_QDRANT_LOCATION",
+    "MEMORY_QDRANT_COLLECTION",
+    "MEMORY_MAX_TOKENS",
+    "config/cli.py --list",
+    "config/cli.py --resume <conversation-uuid>",
+    "/api/chat/",
+    "X-CSRFToken",
+    "cuda-eval",
+    "NO_PROXY",
+    "DEBUG = True",
 )
 MARKDOWN_LINK = re.compile(r"!?\[[^]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 MARKDOWN_HEADING = re.compile(r"^(#{1,6})\s+", re.MULTILINE)
@@ -53,10 +71,27 @@ class PublicDocumentationJourneyTests(TestCase):
                 )
 
     def test_bilingual_memory_evaluation_facts_and_commands_match(self):
-        chinese_guide = (REPOSITORY_ROOT / BILINGUAL_GUIDES[1][0]).read_text()
-        english_guide = (REPOSITORY_ROOT / BILINGUAL_GUIDES[1][1]).read_text()
+        self._assert_facts_and_commands_match(
+            pair=BILINGUAL_GUIDES[1],
+            facts=RETRIEVAL_EVIDENCE_FACTS,
+        )
 
-        for fact in RETRIEVAL_EVIDENCE_FACTS:
+    def test_bilingual_usage_configuration_and_commands_match(self):
+        self._assert_facts_and_commands_match(
+            pair=BILINGUAL_GUIDES[2],
+            facts=USAGE_CONFIGURATION_FACTS,
+        )
+
+    def _assert_facts_and_commands_match(
+        self,
+        *,
+        pair: tuple[Path, Path],
+        facts: tuple[str, ...],
+    ) -> None:
+        chinese_guide = (REPOSITORY_ROOT / pair[0]).read_text()
+        english_guide = (REPOSITORY_ROOT / pair[1]).read_text()
+
+        for fact in facts:
             with self.subTest(fact=fact):
                 self.assertIn(fact, chinese_guide)
                 self.assertIn(fact, english_guide)

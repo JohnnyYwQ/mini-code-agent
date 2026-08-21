@@ -1,6 +1,6 @@
 # Mini Code Agent
 
-[English](README.en.md) · [架构指南](docs/architecture.md) · [Memory 与评测指南](docs/memory-and-evaluation.md)
+[English](README.en.md) · [架构指南](docs/architecture.md) · [Memory 与评测指南](docs/memory-and-evaluation.md) · [使用与贡献指南](docs/usage.md)
 
 ![Mini Code Agent CLI 演示](docs/assets/demo.gif)
 
