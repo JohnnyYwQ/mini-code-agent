@@ -8,6 +8,8 @@ PUBLIC_DOCUMENTATION = (
     Path("README.en.md"),
     Path("docs/architecture.md"),
     Path("docs/architecture.en.md"),
+    Path("docs/memory-and-evaluation.md"),
+    Path("docs/memory-and-evaluation.en.md"),
 )
 MARKDOWN_LINK = re.compile(r"!?\[[^]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 MARKDOWN_HEADING = re.compile(r"^(#{1,6})\s+", re.MULTILINE)
@@ -25,6 +27,24 @@ class PublicDocumentationJourneyTests(TestCase):
         english_guide = (REPOSITORY_ROOT / "docs/architecture.en.md").read_text()
         self.assertIn("(architecture.en.md)", chinese_guide)
         self.assertIn("(architecture.md)", english_guide)
+
+        chinese_hierarchy = MARKDOWN_HEADING.findall(chinese_guide)
+        english_hierarchy = MARKDOWN_HEADING.findall(english_guide)
+        self.assertEqual(chinese_hierarchy, english_hierarchy)
+
+    def test_root_readmes_reach_matching_bilingual_memory_evaluation_guides(self):
+        chinese_readme = (REPOSITORY_ROOT / "README.md").read_text()
+        english_readme = (REPOSITORY_ROOT / "README.en.md").read_text()
+
+        self.assertIn("(docs/memory-and-evaluation.md)", chinese_readme)
+        self.assertIn("(docs/memory-and-evaluation.en.md)", english_readme)
+
+        chinese_guide = (REPOSITORY_ROOT / "docs/memory-and-evaluation.md").read_text()
+        english_guide = (
+            REPOSITORY_ROOT / "docs/memory-and-evaluation.en.md"
+        ).read_text()
+        self.assertIn("(memory-and-evaluation.en.md)", chinese_guide)
+        self.assertIn("(memory-and-evaluation.md)", english_guide)
 
         chinese_hierarchy = MARKDOWN_HEADING.findall(chinese_guide)
         english_hierarchy = MARKDOWN_HEADING.findall(english_guide)
