@@ -167,7 +167,7 @@ export MINI_CODE_AGENT_RUN_ID=your-run-id
 ./scripts/run_longmemeval_cu124.sh
 ```
 
-Set `MINI_CODE_AGENT_PROXY_URL` only when downloads require a proxy. The script requires at least 40 GiB free, checks or incrementally syncs the dedicated Python 3.13 environment, validates the GPU, dependencies, dataset, and model snapshots, then runs: deterministic eight-case smoke Candidate Stage, smoke BGE Reranking Stage, 419-case full Candidate Stage, and full BGE Reranking Stage. The smoke covers six scored types, one assistant-only exclusion, and one Abstention Case.
+Set `MINI_CODE_AGENT_PROXY_URL` only when downloads require a proxy. The script requires at least 40 GiB free, checks or incrementally syncs the dedicated Python 3.13 environment, validates the GPU, dependencies, dataset, and model snapshots, then runs: deterministic eight-case smoke Candidate Retrieval Stage, smoke BGE Reranking Stage, 419-case full Candidate Retrieval Stage, and full BGE Reranking Stage. The smoke covers six scored types, one assistant-only exclusion, and one Abstention Case.
 
 Do not set `MINI_CODE_AGENT_ALLOW_DIRTY=1` for a formal result. That option exists for debugging and makes the generated baseline `provisional`.
 
@@ -175,7 +175,7 @@ Do not set `MINI_CODE_AGENT_ALLOW_DIRTY=1` for a formal result. That option exis
 
 Defaults live below `~/.local/share/mini-code-agent/eval/`: `cache/candidates/` and `cache/rerank/` hold content-addressed stage caches, while `runs/<RUN_ID>/` holds this run's smoke/full manifests, baseline, environment list, and logs. The script reuses complete pinned-revision model snapshots and downloads only required files when they are incomplete.
 
-After interruption, run the same script again with exactly the same dataset, code, lockfile, parameters, and `MINI_CODE_AGENT_RUN_ID`. Candidate and Reranking Stages read their JSONL completed-case ledgers and continue after completed questions. An identity change produces a different cache key instead of mixing incompatible records. `run.lock` prevents two CUDA runs from writing the same evaluation home concurrently.
+After interruption, run the same script again with exactly the same dataset, code, lockfile, parameters, and `MINI_CODE_AGENT_RUN_ID`. The Candidate Retrieval Stage and Reranking Stage read their JSONL completed-case ledgers and continue after completed questions. An identity change produces a different cache key instead of mixing incompatible records. `run.lock` prevents two CUDA runs from writing the same evaluation home concurrently.
 
 Inspect these outputs after success:
 

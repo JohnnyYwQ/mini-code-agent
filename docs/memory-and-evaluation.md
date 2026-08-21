@@ -167,7 +167,7 @@ export MINI_CODE_AGENT_RUN_ID=your-run-id
 ./scripts/run_longmemeval_cu124.sh
 ```
 
-仅在下载需要代理时设置 `MINI_CODE_AGENT_PROXY_URL`。脚本要求至少 40 GiB 可用空间，校验/增量同步专用 Python 3.13 环境，验证 GPU、依赖、数据集和模型 snapshot，然后依次执行：确定性的 8-case smoke Candidate Stage、smoke BGE Reranking Stage、419-case full Candidate Stage、full BGE Reranking Stage。smoke 覆盖六种计分题型、一个 assistant-only 排除样本和一个 Abstention Case。
+仅在下载需要代理时设置 `MINI_CODE_AGENT_PROXY_URL`。脚本要求至少 40 GiB 可用空间，校验/增量同步专用 Python 3.13 环境，验证 GPU、依赖、数据集和模型 snapshot，然后依次执行：确定性的 8-case smoke Candidate Retrieval Stage、smoke BGE Reranking Stage、419-case full Candidate Retrieval Stage、full BGE Reranking Stage。smoke 覆盖六种计分题型、一个 assistant-only 排除样本和一个 Abstention Case。
 
 不要为正式结果设置 `MINI_CODE_AGENT_ALLOW_DIRTY=1`；该选项仅用于调试，并让 baseline 标记为 `provisional`。
 
@@ -175,7 +175,7 @@ export MINI_CODE_AGENT_RUN_ID=your-run-id
 
 默认目录位于 `~/.local/share/mini-code-agent/eval/`：`cache/candidates/` 和 `cache/rerank/` 保存按内容寻址的阶段缓存，`runs/<RUN_ID>/` 保存本次 smoke/full manifests、baseline、环境清单与日志。脚本会复用完整的固定 revision 模型 snapshot；缺失时只下载所需文件。
 
-运行中断后，使用完全相同的数据集、代码、锁文件、参数与 `MINI_CODE_AGENT_RUN_ID` 再次执行同一脚本。Candidate 与 Reranking Stage 会读取 JSONL completed-case ledger，从已完成问题之后继续；身份变化会产生不同 cache key，不会把不兼容记录混入结果。`run.lock` 防止两个 CUDA run 同时写同一 evaluation home。
+运行中断后，使用完全相同的数据集、代码、锁文件、参数与 `MINI_CODE_AGENT_RUN_ID` 再次执行同一脚本。Candidate Retrieval Stage 与 Reranking Stage 会读取 JSONL completed-case ledger，从已完成问题之后继续；身份变化会产生不同 cache key，不会把不兼容记录混入结果。`run.lock` 防止两个 CUDA run 同时写同一 evaluation home。
 
 成功后重点检查：
 
