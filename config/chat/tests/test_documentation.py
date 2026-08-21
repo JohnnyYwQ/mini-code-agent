@@ -31,7 +31,7 @@ RETRIEVAL_EVIDENCE_FACTS = (
     "97.61%",
     "95.69%",
 )
-USAGE_CONFIGURATION_FACTS = (
+USAGE_GUIDE_INVARIANTS = (
     "MODEL_ID",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_BASE_URL",
@@ -79,7 +79,7 @@ class PublicDocumentationJourneyTests(TestCase):
     def test_bilingual_usage_configuration_and_commands_match(self):
         self._assert_facts_and_commands_match(
             pair=BILINGUAL_GUIDES[2],
-            facts=USAGE_CONFIGURATION_FACTS,
+            facts=USAGE_GUIDE_INVARIANTS,
         )
 
     def _assert_facts_and_commands_match(

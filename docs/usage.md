@@ -4,7 +4,7 @@
 
 本指南面向首次运行当前 Web 或 CLI 的读者，以及希望复现项目开发检查的贡献者。它解释可信本地边界、配置、入口、JSON API、Memory 存储和质量检查；LongMemEval Retrieval Baseline 的独立 CUDA 流程见 [Memory 与评测指南](memory-and-evaluation.md)。
 
-> **先阅读安全边界：** 这是可信本地、单 User 的开发工具，不具备生产认证或多用户隔离。不要把 Web 应用或 `/api/chat/` 直接暴露到公网；Agent 可以在选定工作区运行 shell 命令并修改文件。
+> **先阅读安全边界：** 这是可信本地、单 User 的开发工具，不具备生产认证或多用户隔离。Django 使用包含 `DEBUG = True` 的开发设置；嵌入式本地 Qdrant 适合单进程，Web 与 CLI 并发访问应使用共享 service URL。不要把 Web 应用或 `/api/chat/` 直接暴露到公网；Agent 可以在选定工作区运行 shell 命令并修改文件。
 
 ## 运行应用
 
@@ -57,7 +57,7 @@ uv run --locked python config/manage.py migrate
 uv run --locked python config/manage.py runserver
 ```
 
-在浏览器中打开 `http://127.0.0.1:8000/`，点击 **New conversation** 后即可发送消息。Web 入口为当前进程的工作目录创建 Conversation；侧栏按 Memory Space（工作区）分组展示本地 User 的 Conversation。选择一个已有 Conversation 后，新的 Turn 会继续在该 Conversation 的工作区运行。
+在浏览器中打开 `http://127.0.0.1:8000/`，点击 **New conversation** 后即可发送消息。没有选中 Conversation 时，Web 入口会为当前进程的工作目录创建 Conversation；选中已有 Conversation 时，新的 Conversation 会继承该 Conversation 的工作区。侧栏按 Memory Space（工作区）分组展示本地 User 的 Conversation。新的 Turn 会继续在所选 Conversation 的工作区运行。
 
 ### CLI
 
@@ -84,7 +84,7 @@ uv run --project /path/to/mini-code-agent \
   python /path/to/mini-code-agent/config/cli.py
 ```
 
-这会把 Conversation、Memory Space、文件工具和 shell 绑定到 `/path/to/workspace`，而依赖仍来自 `mini-code-agent`。若 Web 中保存的工作区已不存在，其 Transcript 仍可阅读，但无法发起新的 Turn 或执行工具。
+这会把 Conversation、Memory Space、文件工具和 shell 绑定到 `/path/to/workspace`，而依赖仍来自 `mini-code-agent`。若 Web 中保存的工作区已不存在，其 Conversation Transcript 仍可阅读，但无法发起新的 Turn 或执行工具。
 
 ## Web 与 JSON API
 
@@ -120,7 +120,7 @@ curl -X POST http://127.0.0.1:8000/api/chat/ \
 
 ### 按需下载 BGE
 
-Memory 使用 E5 dense、BM25 keyword 和 BGE Reranking。`BAAI/bge-reranker-v2-m3` 由 `BGEReranker` 延迟加载：第一次发生 Memory recall 或运行 BGE 评测时会下载模型。请在首次 Memory-enabled run 前预留数 GB 磁盘空间；之后会复用本地缓存。
+Memory 使用 E5 dense、BM25 keyword 和 BGE Reranking。`BAAI/bge-reranker-v2-m3` 由 `BGEReranker` 延迟加载：第一次存在候选的 Memory recall，或运行 BGE 评测时会下载模型。请在首次 Memory-enabled run 前预留数 GB 磁盘空间；之后会复用本地缓存。
 
 Memory 初始化或检索失败时，当前 Agent Runtime 会记录错误并继续运行，但不带 recalled Memory。这不表示模型配置或持久存储已经正确；应先检查环境变量、网络访问、模型缓存和 Qdrant 位置。
 

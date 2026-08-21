@@ -4,7 +4,7 @@
 
 This guide is for first-time users of the current Web or CLI experience and contributors who want to reproduce the repository's development checks. It covers the trusted-local boundary, configuration, entry points, JSON API, Memory storage, and quality checks. See the [Memory and evaluation guide](memory-and-evaluation.en.md) for the separate CUDA workflow behind the LongMemEval Retrieval Baseline.
 
-> **Read the security boundary first:** this is a trusted-local, single-User development tool. It has no production authentication or multi-User isolation. Do not expose the Web app or `/api/chat/` to the public internet; the Agent can run shell commands and change files in the selected workspace.
+> **Read the security boundary first:** this is a trusted-local, single-User development tool. It has no production authentication or multi-User isolation. Django uses development settings including `DEBUG = True`; embedded local Qdrant suits one process, and concurrent Web/CLI access needs a shared service URL. Do not expose the Web app or `/api/chat/` to the public internet; the Agent can run shell commands and change files in the selected workspace.
 
 ## Run the application
 
@@ -57,7 +57,7 @@ uv run --locked python config/manage.py migrate
 uv run --locked python config/manage.py runserver
 ```
 
-Open `http://127.0.0.1:8000/` in a browser, select **New conversation**, then send a message. The Web entry point creates a Conversation for the process's current workspace. Its sidebar shows the local User's Conversations grouped by Memory Space (workspace). Selecting an existing Conversation runs new Turns in that Conversation's workspace.
+Open `http://127.0.0.1:8000/` in a browser, select **New conversation**, then send a message. With no Conversation selected, the Web entry point creates one for the process's current workspace. With a Conversation selected, the new Conversation inherits that Conversation's workspace. Its sidebar shows the local User's Conversations grouped by Memory Space (workspace). New Turns run in the selected Conversation's workspace.
 
 ### CLI
 
@@ -84,7 +84,7 @@ uv run --project /path/to/mini-code-agent \
   python /path/to/mini-code-agent/config/cli.py
 ```
 
-This binds the Conversation, Memory Space, file tools, and shell to `/path/to/workspace`, while dependencies still come from `mini-code-agent`. If a Web-stored workspace no longer exists, its Transcript remains readable but new Turns and tool execution are unavailable.
+This binds the Conversation, Memory Space, file tools, and shell to `/path/to/workspace`, while dependencies still come from `mini-code-agent`. If a Web-stored workspace no longer exists, its Conversation Transcript remains readable but new Turns and tool execution are unavailable.
 
 ## Web and JSON API
 
@@ -120,7 +120,7 @@ Do not disable CSRF for scripting and do not commit local cookies or credentials
 
 ### On-demand BGE download
 
-Memory combines E5 dense, BM25 keyword, and BGE Reranking. `BAAI/bge-reranker-v2-m3` is lazily loaded by `BGEReranker`: its model downloads on the first Memory recall or BGE evaluation. Reserve several GB of disk before the first Memory-enabled run; later runs reuse the local cache.
+Memory combines E5 dense, BM25 keyword, and BGE Reranking. `BAAI/bge-reranker-v2-m3` is lazily loaded by `BGEReranker`: its model downloads on the first Memory recall that has candidates to rerank, or during BGE evaluation. Reserve several GB of disk before the first Memory-enabled run; later runs reuse the local cache.
 
 If Memory initialization or retrieval fails, the current Agent Runtime logs the error and continues without recalled Memory. That does not show that model configuration or persistent storage is correct. Check environment variables, network access, model cache, and Qdrant location first.
 
