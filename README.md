@@ -1,6 +1,6 @@
 # Mini Code Agent
 
-[English](README.en.md)
+[English](README.en.md) · [架构指南](docs/architecture.md)
 
 ![Mini Code Agent CLI 演示](docs/assets/demo.gif)
 
