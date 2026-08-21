@@ -1,143 +1,118 @@
 # Mini Code Agent
 
-[中文](README.md) · [Architecture guide](docs/architecture.en.md) · [Memory and evaluation guide](docs/memory-and-evaluation.en.md) · [Usage and contributor guide](docs/usage.en.md)
+[中文](README.md) · [Architecture](docs/architecture.en.md) · [Memory and evaluation](docs/memory-and-evaluation.en.md) · [Usage and contribution](docs/usage.en.md)
 
-![Mini Code Agent CLI demo](docs/assets/demo.gif)
+[![CI](https://github.com/JohnnyYwQ/mini-code-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/JohnnyYwQ/mini-code-agent/actions/workflows/ci.yml)
+![Python 3.13+](https://img.shields.io/badge/Python-3.13%2B-3776AB)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-## Overview
+A personal engineering project built around a **stateful Coding Agent**: Conversations persist, Memory works
+across Turns and Conversations within explicit User/Space Scopes, and model calls, tools, permissions, and
+context management meet inside a short-lived Agent Runtime.
 
-Mini Code Agent 0.2 is a small Django-based coding agent for learning and local development. It provides resumable Web and CLI Conversations, a JSON chat API, workspace-bound Agent Runtimes, and calls the Claude Messages API through the Anthropic Python SDK.
+Mini Code Agent is neither positioned as a tutorial nor presented as a production-ready Agent. It focuses on
+engineering boundaries that can be run, tested, and evaluated: Django Web/CLI, the Anthropic Messages API,
+workspace tools, Qdrant Memory, hybrid retrieval, BGE Reranking, and a reproducible LongMemEval Retrieval Baseline.
 
-The agent can invoke local tools, observe their results, and continue the conversation until the model returns a final response. The project is intended for trusted local development environments and is not ready for direct public production deployment.
+> **Intended scope:** The current version is for a trusted local, single-User environment. The Agent can run
+> shell commands and change workspace files; the Web app, JSON API, and tool layer have neither production
+> authentication nor a complete sandbox. Do not expose them directly to the public internet.
 
-## Features
+## Engineering focus
 
-- Django web chat interface at `/`
-- JSON chat endpoint at `/api/chat/`
-- Database-backed Conversations with complete top-level tool messages
-- A Web sidebar grouped by workspace with cross-workspace resume
-- CLI creation by default plus list/resume within the launch workspace
-- One shared, non-login Django local User for Web and CLI
-- User/Space Memory with automatic hybrid retrieval, BGE reranking, and a no-argument `remember` tool
-- Anthropic Messages API agent loop using `tool_use` and `tool_result`
-- Local tools:
-  - `bash`: run shell commands in the workspace
-  - `read_file`: read files inside the workspace
-  - `write_file`: write files inside the workspace
-  - `edit_file`: replace selected text in workspace files
-  - `glob`: find files with glob patterns
-  - `todo`: maintain an in-memory task list
-  - `load_skill`: load a skill by name
-  - `compact`: compact earlier conversation history
-- Skill discovery from `SKILL.md` files in first-level subdirectories of `.skills/`
-- Context compaction, tool-result trimming, and pre-compaction transcript snapshots
-- Hooks around user prompts, tool calls, and agent termination
-- Workspace path restrictions for file tools
-- Web and CLI entry points
-- A Django test suite plus Ruff, mypy, coverage, and pre-commit checks
+### Persistent Conversations and scoped Memory
 
-## Tech Stack
+- The Conversation Transcript persists complete user, assistant, and tool protocol messages across processes.
+- One Memory Space represents one local workspace and can share Space Memory across several Conversations.
+- User Memory is available across every Memory Space owned by the User; Space Memory stays within its target space.
+- Every Turn combines E5 dense and BM25 keyword candidates, fuses them with RRF, and reranks them with
+  `BAAI/bge-reranker-v2-m3`.
+- Recalled Memory is ephemeral Memory Context for the current Turn; it is never disguised as Conversation Transcript.
 
-- Python 3.13+
-- Django 5.2
-- Anthropic Python SDK
-- Qdrant, FastEmbed, and FlagEmbedding
-- uv
-- python-dotenv
-- prompt_toolkit
-- PyYAML
-- HTML, CSS, and vanilla JavaScript
+### Agent Runtime and Agent Loop
 
-## Project Structure
+- Web and CLI use the same Application boundary to resolve the Conversation, User, Memory Space, and workspace.
+- Each Turn creates an Agent Runtime fixed to one workspace and Memory Context; a Conversation is not a resident process.
+- The Agent Loop follows the Anthropic Messages API `tool_use` / `tool_result` protocol until a final reply,
+  failure, or the round limit.
+- Built-in capabilities cover shell, file operations, glob, todo, skills, context compaction, and `remember`,
+  with permission hooks around execution.
+- Context compaction changes only the working context of later model calls; it never replaces the authoritative Transcript.
 
-```text
-.
-├── .env.example
-├── .github/
-│   └── workflows/
-│       └── ci.yml
-├── .pre-commit-config.yaml
-├── .skills/
-│   └── code-review/
-│       └── SKILL.md
-├── LICENSE
-├── pyproject.toml
-├── uv.lock
-└── config/
-    ├── cli.py
-    ├── manage.py
-    ├── config/
-    │   ├── settings.py
-    │   ├── urls.py
-    │   ├── asgi.py
-    │   └── wsgi.py
-    ├── chat/
-    │   ├── application.py
-    │   ├── composition.py
-    │   ├── models.py
-    │   ├── tests/
-    │   ├── templates/chat/index.html
-    │   ├── static/chat/
-    │   ├── urls.py
-    │   └── views.py
-    ├── core/
-        ├── agent_runtime.py
-        ├── compaction.py
-        ├── memory/
-        ├── frontmatter.py
-        ├── skills.py
-        ├── tooling.py
-        └── todo.py
-    └── evals/
-        └── memory_retrieval/
+### A runnable end-to-end system
+
+- A Django Web UI, CSRF-protected JSON API, and `prompt_toolkit` CLI share the same application and persistence path.
+- SQLite stores Conversations; Qdrant stores retrievable Memory through either an embedded database or service URL.
+- File tools remain inside the Conversation workspace; the CLI can interactively confirm potentially destructive commands.
+- Python 3.13, `uv.lock`, Django tests, Ruff, mypy, coverage, pre-commit, and GitHub Actions provide reproducible checks.
+
+## Technology
+
+| Layer | Current implementation |
+| --- | --- |
+| Application | Python 3.13, Django 5.2, SQLite |
+| Model | Anthropic Python SDK, Messages API |
+| Memory | Qdrant, FastEmbed E5, BM25, RRF, FlagEmbedding BGE |
+| Entry points | Django templates, vanilla JavaScript, `prompt_toolkit` |
+| Agent capabilities | Workspace tools, permission hooks, skills, todo, compaction |
+| Engineering checks | uv, Ruff, mypy, coverage, pre-commit, GitHub Actions |
+
+## LongMemEval retrieval result
+
+The pinned CUDA run `20260816-cu124-v1` evaluates this project's E5 + BM25 + RRF + BGE pipeline on the official
+cleaned LongMemEval-S data with the official user-only indexing scope, eligibility rules, and `@5`/`@10` formulas.
+Of 500 source samples, the protocol excludes 30 Abstention Cases and 51 samples without user-side target evidence,
+leaving 419 scored samples.
+
+| Retrieval pipeline | RecallAll@5 | NDCG@5 | RecallAll@10 | NDCG@10 |
+| --- | ---: | ---: | ---: | ---: |
+| E5 + BM25 + RRF + BGE | **92.60%** | **94.74%** | **97.61%** | **95.69%** |
+
+These numbers measure **retrieval only**. They are not end-to-end LongMemEval QA, an official leaderboard result,
+or a general Agent performance claim. The formal baseline, per-question records, and logs have not yet been
+recovered into the repository and independently reverified; this page reports recorded results without presenting
+the missing artifacts as published evidence.
+
+[See the full pipeline comparison, exclusions, model revisions, CUDA checks, hashes, limits, and reproduction path →](docs/memory-and-evaluation.en.md)
+
+## Architecture at a glance
+
+```mermaid
+flowchart LR
+    Web[Web UI / JSON API] --> App[Application]
+    CLI[CLI] --> App
+    App --> DB[(Conversation + Transcript)]
+    App --> Runtime[Agent Runtime]
+    Runtime --> Memory[User + Space Memory]
+    Memory --> Qdrant[(Qdrant)]
+    Runtime --> Loop[Agent Loop]
+    Loop <--> API[Anthropic Messages API]
+    Loop --> Tools[Tools + permission hooks]
+    Tools --> Workspace[(Workspace)]
 ```
 
-Key files:
+The critical path of one Turn:
 
-- `config/cli.py`: CLI entry, Conversation selection, and terminal I/O
-- `config/core/tooling.py`: built-in tool definitions, implementations, permission policy, and hooks
-- `config/core/agent_runtime.py`: Conversation-workspace agent loop, Memory recall, and the `remember` tool
-- `config/core/memory/`: Memory extraction, hybrid retrieval, Qdrant adapter, and production composition
-- `config/evals/memory_retrieval/`: built-in retrieval cases, the LongMemEval adapter, dataset download, and evaluation entry point
-- `config/chat/application.py`: trusted User, Memory Space, Conversation, transcript, and Turn orchestration
-- `config/chat/composition.py`: shared Web/CLI Agent Runtime and Memory composition
-- `config/core/compaction.py`: transcript snapshots, tool-result trimming, and context compaction
-- `config/core/frontmatter.py`: YAML frontmatter parsing for `SKILL.md`
-- `config/core/skills.py`: skill discovery, registration, and loading
-- `config/core/todo.py`: todo validation and state management
-- `config/chat/views.py`: the web view and `/api/chat/` JSON endpoint
-- `config/chat/tests/`: unit and behavior tests
-- `pyproject.toml`: project dependencies and Ruff, mypy, and coverage configuration
-- `uv.lock`: the exact dependency lockfile generated by uv
-- `.github/workflows/ci.yml`: quality checks triggered by pushes, pull requests, or manual runs
+1. Web or CLI selects or creates a Conversation; the Application derives its trusted User, Memory Space,
+   and workspace from persisted state.
+2. The Application saves the user message, creates an Agent Runtime for this Turn, and recalls in-Scope Memory.
+3. The Agent Loop calls the model and approved tools; tools remain inside the Conversation workspace and policy.
+4. On success, assistant and tool protocol messages enter the Conversation Transcript as one ordered batch;
+   a failure does not persist partial generated output.
 
-`pyproject.toml` declares the project dependencies, while `uv.lock` locks exact versions across the complete resolved dependency graph. Together, they are the project's sole dependency-management entry points.
+[Read the complete architecture, responsibilities, domain objects, and real Turn data flow →](docs/architecture.en.md)
 
-## How It Works
+## Quick start
 
-1. Web or CLI selects/creates a Conversation; the application derives its trusted local User, Memory Space, and workspace.
-2. The user message is persisted before the agent runs and remains unanswered if the run fails.
-3. Each Turn performs hybrid retrieval over User Memory and current Space Memory, reranks with `BAAI/bge-reranker-v2-m3` by default, and injects at most five results into ephemeral system context.
-4. A Conversation-bound Agent Runtime runs files, shell, skills, todo, and compaction in the selected workspace.
-5. The model may call the no-argument `remember` tool over visible text from up to five completed Turns plus the current Turn.
-6. After success, generated assistant/tool-result messages are persisted as one ordered batch; partial generated transcripts are discarded on failure.
-7. Web and CLI reload Conversations from the database, so process restarts preserve history.
+You need Python 3.13+, [uv](https://docs.astral.sh/uv/getting-started/installation/), and access to the Anthropic API
+or a compatible endpoint.
 
-## Quick Start
-
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/), then sync the locked dependencies from the project root:
+> The BGE reranker downloads lazily on the first Memory recall. Reserve several GB of disk space beforehand.
 
 ```bash
+git clone https://github.com/JohnnyYwQ/mini-code-agent.git
+cd mini-code-agent
 uv sync --locked
-```
-
-uv creates or updates `.venv` in the project root. You normally do not need to activate it manually because the remaining commands use `uv run`.
-
-The BGE reranker is loaded lazily. Its model is downloaded on the first Memory recall or BGE evaluation, so reserve several GB of disk space; later runs reuse the local cache.
-
-Create a local environment file:
-
-```bash
 cp .env.example .env
 ```
 
@@ -147,231 +122,60 @@ Edit `.env`:
 MODEL_ID=your_model_id
 ANTHROPIC_API_KEY=your_api_key
 # ANTHROPIC_BASE_URL=
-# MEMORY_QDRANT_LOCATION=/absolute/path/to/qdrant
 ```
 
-Create the database tables:
+Start the Web app:
 
 ```bash
-uv run python config/manage.py migrate
+uv run --locked python config/manage.py migrate
+uv run --locked python config/manage.py runserver
 ```
 
-Run Django:
+Open `http://127.0.0.1:8000/` and create a Conversation. Or use the CLI:
 
 ```bash
-uv run python config/manage.py runserver
+uv run --locked python config/cli.py
+uv run --locked python config/cli.py --list
+uv run --locked python config/cli.py --resume <conversation-uuid>
 ```
 
-Open the web interface:
+The CLI resolves its workspace from the launch directory; Web and CLI share one non-login local User. See the
+[usage and contributor guide](docs/usage.en.md) for every environment variable, other-workspace operation,
+the JSON API, Qdrant configuration, and development commands.
 
-```text
-http://127.0.0.1:8000/
-```
+## Current boundaries
 
-Run the CLI:
+- Trusted local, single-User use only; there is no login, API token, multi-User isolation, or remote deployment authentication.
+- `bash` uses the system shell; its denylist and workspace path checks are not a complete security sandbox.
+- Django still uses development settings; embedded Qdrant is for one process, so concurrent entry points need a shared service.
+- Model replies are not streamed, and the Web UI does not expose a complete tool-call trace.
+- Memory UPDATE/DELETE, Memory Event integration, and automatic index recovery are not complete.
+- Moving or renaming a workspace does not migrate its existing Memory Space automatically.
 
-```bash
-uv run python config/cli.py
-```
+## Documentation
 
-The CLI creates a new Conversation by default. List or resume Conversations from the current workspace with:
+| Guide | Contents |
+| --- | --- |
+| [Architecture](docs/architecture.en.md) | Web/CLI, Application, Agent Runtime, Agent Loop, tools, persistence, and one Turn |
+| [Memory and evaluation](docs/memory-and-evaluation.en.md) | Scope, retrieval pipeline, LongMemEval protocol, full results, evidence status, and CUDA reproduction |
+| [Usage and contribution](docs/usage.en.md) | Setup, configuration, Web/CLI, JSON API, safety, Qdrant, tests, and CI |
 
-```bash
-uv run python config/cli.py --list
-uv run python config/cli.py --resume <conversation-uuid>
-```
-
-Exit the CLI with `q`, `exit`, an empty line, `Ctrl-C`, or EOF.
-
-To operate on another directory while still using this project's environment, run the CLI from the target workspace:
-
-```bash
-cd /path/to/workspace
-uv run --project /path/to/mini-code-agent \
-  python /path/to/mini-code-agent/config/cli.py
-```
-
-The Conversation and Memory Space bind to the current workspace where the command runs, while dependencies still come from the `mini-code-agent` project.
-
-## Memory Retrieval Evaluation
-
-Evaluations use an isolated in-memory Qdrant instance and never read or write persisted application Memory. Run the 10 built-in cases without reranking as a hybrid-retrieval baseline:
-
-```bash
-uv run --locked python config/evals/memory_retrieval/run.py
-```
-
-Compare no reranking with the default BGE reranker over the same index:
-
-```bash
-uv run --locked python config/evals/memory_retrieval/run.py \
-  --reranker none \
-  --reranker bge
-```
-
-FlashRank is an optional dependency and defaults to `ms-marco-MultiBERT-L-12`:
-
-```bash
-uv run --locked --extra flashrank \
-  python config/evals/memory_retrieval/run.py \
-  --reranker flashrank
-```
-
-Download the project's pinned, SHA-256-verified LongMemEval-S dataset, then start with 10 cases:
-
-```bash
-uv run --locked python \
-  config/evals/memory_retrieval/download_longmemeval.py
-
-uv run --locked python config/evals/memory_retrieval/run.py \
-  --longmemeval config/evals/memory_retrieval/data/longmemeval_s_cleaned.json \
-  --max-cases 10 \
-  --reranker none \
-  --reranker bge
-```
-
-Remove `--max-cases 10` to run every scored case. The download is about 265 MiB and is stored under the Git-ignored `config/evals/memory_retrieval/data/` directory. Interactive terminals show indexing and per-case progress; CI and redirected output omit the progress bars.
-
-The built-in report includes Hit@1, Recall@5, MRR@5, and ScopeLeak. LongMemEval also reports session-level retrieval metrics.
-
-The pinned Ubuntu 20.04 / RTX 2070 SUPER host has a separate CUDA baseline entry point. It first runs a deterministic smoke that covers all six scored question types, one assistant-only exclusion, and one abstention exclusion, then runs every eligible case. E5/BM25/RRF candidate generation and BGE reranking run in separate processes:
-
-```bash
-export MINI_CODE_AGENT_PROXY_URL=http://127.0.0.1:7897  # match the reverse tunnel's local port
-./scripts/run_longmemeval_cu124.sh
-```
-
-The runner reuses `~/.local/share/mini-code-agent/venvs/cu124`, checks it against the lock first, and performs an incremental `uv sync` only when it differs. It also detects the existing `/tmp/fastembed_cache`, `~/.cache/huggingface/hub`, and verified in-repository dataset before downloading anything. By default it requires a clean worktree and at least 40 GiB free; set `MINI_CODE_AGENT_ALLOW_DIRTY=1` only for development runs, which are labeled `provisional`.
-
-The final `full/baseline.json` contains E5, BM25, E5+BM25+RRF, and E5+BM25+RRF+BGE results under the official `RecallAll@5`, `NDCG@5`, `RecallAll@10`, and `NDCG@10` formulas, per-case records, exact model revisions, and verified CUDA providers. E5's provider list includes ONNX Runtime's implicit CPU provider for shape and control nodes; a preflight profile must prove that compute-heavy operators run on CUDA and none run on CPU. BGE reranks a fixed RRF top-50 pool by default, using RRF rank constant 60; both values participate in the cache identity. It is an “official-data/official-metric LongMemEval retrieval baseline”: retrieval only, not an end-to-end LongMemEval QA or official leaderboard score. Reuse the same `MINI_CODE_AGENT_RUN_ID` after an interruption to resume the content-addressed per-case JSONL artifacts.
-
-### Formal CUDA Baseline Results (2026-08-16)
-
-`20260816-cu124-v1` is a `formal` / `full` run. Of the 500 source cases in the official cleaned LongMemEval-S dataset, 419 entered retrieval scoring; the protocol excluded 30 abstention cases and 51 cases without user-side target evidence.
-
-| Retrieval chain | RecallAll@5 | NDCG@5 | RecallAll@10 | NDCG@10 |
-| --- | ---: | ---: | ---: | ---: |
-| BM25 | 87.35% | 89.33% | 92.12% | 90.44% |
-| E5 | 90.93% | 89.92% | 95.94% | 91.20% |
-| E5 + BM25 + RRF | 90.69% | 92.17% | 96.42% | 93.26% |
-| E5 + BM25 + RRF + BGE | **92.60%** | **94.74%** | **97.61%** | **95.69%** |
-
-The BGE chain leads all four primary metrics. Relative to RRF, it improves RecallAll@5, NDCG@5, RecallAll@10, and NDCG@10 by 1.91, 2.57, 1.19, and 2.42 percentage points, respectively. Its RecallAny@10 is 100%, but RecallAll@10 still misses at least one target session in 10 cases: seven multi-session and three temporal-reasoning cases. Further work should therefore prioritize multi-session coverage and temporal retrieval.
-
-The result was produced from code commit `7b1f9466f3f334bc9f6b58225397c3daee55dbd5` on Ubuntu 20.04 with an 8 GiB RTX 2070 SUPER, NVIDIA 550.142, and CUDA 12.4. Profiling confirms that E5's compute-heavy operators execute on CUDA, while BGE runs in FP16 on `cuda:0`. The dataset SHA-256 is `d6f21ea9d60a0d56f34a05b609c79c88a451d2ae03597821ea3d5a9678c3a442`; the aggregate artifact SHA-256 is `e267d5696e37a0c006d354c5b21ca5bb8f2620f9a48dbdf5a881f1d6b18b9a34`.
-
-## Calling the JSON API
-
-`/api/chat/` is protected by Django's CSRF middleware. The web interface is the recommended path. For curl requests, send both the matching CSRF cookie and request header.
-
-Request the homepage and save its cookies:
-
-```bash
-curl -c cookies.txt http://127.0.0.1:8000/
-```
-
-Copy the real `csrftoken` value from `cookies.txt`, then send the request:
-
-```bash
-curl -X POST http://127.0.0.1:8000/api/chat/ \
-  -b cookies.txt \
-  -H "Content-Type: application/json" \
-  -H "X-CSRFToken: <csrftoken-from-cookies.txt>" \
-  -d '{"conversation_id":"<conversation-uuid>","message":"hello"}'
-```
-
-## Development Checks
-
-Run the test suite:
-
-```bash
-uv run python config/manage.py test chat tests.memory
-```
-
-Run Ruff:
-
-```bash
-uv run ruff check .
-uv run ruff format --check .
-```
-
-Run mypy:
-
-```bash
-uv run mypy
-```
-
-Run the tests with coverage:
-
-```bash
-uv run coverage erase
-uv run coverage run config/manage.py test chat tests.memory
-uv run coverage report -m
-```
-
-Generate an HTML coverage report:
-
-```bash
-uv run coverage html
-```
-
-The report is written to `htmlcov/index.html`.
-
-Run all pre-commit hooks:
-
-```bash
-uv run pre-commit run --all-files
-```
-
-Install the Git hook for the current clone:
-
-```bash
-uv run pre-commit install
-```
-
-After installation, `git commit` automatically runs Ruff and mypy. If a hook modifies files, the commit stops so you can review and stage the changes before trying again.
-
-GitHub Actions repeats the formatting check, lint, mypy, test, and coverage-report steps with Python 3.13 and `uv.lock` on every push, pull request, or manual run.
-
-## Environment Variables
-
-- `MODEL_ID`: required; the model name passed to the Anthropic Messages API
-- `ANTHROPIC_API_KEY`: required for normal Anthropic API usage
-- `ANTHROPIC_BASE_URL`: optional; a custom Anthropic-compatible API base URL
-- `MEMORY_QDRANT_LOCATION`: optional local Qdrant path or complete `http(s)://` service URL; defaults to `~/.mini-code-agent/qdrant`
-- `MEMORY_QDRANT_COLLECTION`: optional Memory collection name
-- `MEMORY_MAX_TOKENS`: optional Memory extraction output limit
-
-Environment variables are loaded from `.env` through `python-dotenv`. Never commit an `.env` file containing real credentials.
-
-## Safety Notes
-
-- The project is intended only for trusted local development environments.
-- The `bash` tool runs commands with `subprocess.run(..., shell=True)`. Its current denylist is not a complete sandbox.
-- Do not expose the current web app or agent API directly to the public internet.
-- File tools use `safe_path()` to keep resolved paths inside the current workspace.
-- `write_file` and `edit_file` can modify files inside the workspace.
-- Version 0.2 is trusted local single-user software: it has no login, tokens, or multi-user isolation and must not be exposed publicly.
-- Embedded Qdrant is best used by one process; configure a shared Qdrant service URL when Web and CLI run concurrently.
-- For a Qdrant service on the local machine, use a complete URL and configure `NO_PROXY` so loopback traffic bypasses the system proxy.
-- Django currently uses development settings such as `DEBUG = True`.
-
-## Current Limitations
-
-- Model responses are not streamed.
-- There is no login, multi-user support, or remote-deployment authentication.
-- Memory UPDATE/DELETE, MemoryEvent integration, and automatic index recovery are not complete.
-- There is no complete tool-call trace visualization.
-- The `bash` tool is suitable only for trusted environments.
+Every public guide has a structurally and factually matching [Chinese version](README.md).
 
 ## Roadmap
 
-- Add streaming web and API responses
-- Add authentication and multi-user isolation when remote deployment is needed
-- Add tool-call trace visualization
-- Complete the Memory lifecycle and index recovery
-- Continue expanding test coverage for important branches
+- Recover and independently reverify the formal Retrieval Baseline artifacts.
+- Complete the Memory lifecycle and index recovery.
+- Add streaming responses and tool-call trace visualization.
+- Add authentication, isolation, and a stronger tool sandbox if remote or multi-User use becomes a goal.
+
+## Acknowledgements
+
+The early minimal Agent Loop was inspired by
+[shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code).
+This repository later evolved independently around persistent Conversations, scoped Memory, retrieval evaluation,
+Web/CLI entry points, and engineering checks; it is not a tutorial fork of that project.
 
 ## License
 
-This project is licensed under the [MIT License](LICENSE).
+[MIT License](LICENSE) © 2026 JohnnyYwQ
