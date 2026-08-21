@@ -1,6 +1,6 @@
 from unittest import TestCase
 
-from core.agent import CLI_PROMPT, visible_cli_history
+from cli import CLI_PROMPT, visible_cli_history
 from prompt_toolkit.formatted_text import to_formatted_text
 
 

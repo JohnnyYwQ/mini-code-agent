@@ -3,8 +3,8 @@ from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest import TestCase
 
-from core.agent import TOOLS
 from core.agent_runtime import AgentRuntime, AgentRuntimeConfig
+from core.tooling import TOOLS
 
 
 class ToolSchemaTests(TestCase):

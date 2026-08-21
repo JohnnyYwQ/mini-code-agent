@@ -8,11 +8,17 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
+from urllib.parse import urlparse
 
 from anthropic.types import ToolParam
 
-from core.agent import (
-    MAX_ROUNDS,
+from core.compaction import ContextCompactor
+from core.memory.extraction import MemoryMessage
+from core.memory.memory import MemoryContext
+from core.memory.vector_store import MemorySearchResult
+from core.skills import SkillManager
+from core.todo import TodoManager
+from core.tooling import (
     TOOLS,
     large_output_hook,
     log_hook,
@@ -23,16 +29,16 @@ from core.agent import (
     run_read,
     run_write,
     summary_hook,
-    valid_http_url,
 )
-from core.compaction import ContextCompactor
-from core.memory.extraction import MemoryMessage
-from core.memory.memory import MemoryContext
-from core.memory.vector_store import MemorySearchResult
-from core.skills import SkillManager
-from core.todo import TodoManager
 
 logger = logging.getLogger(__name__)
+
+MAX_ROUNDS = 500
+
+
+def valid_http_url(url: str) -> bool:
+    parsed = urlparse(url)
+    return parsed.scheme in ("http", "https") and bool(parsed.netloc)
 
 
 class AgentMemory(Protocol):

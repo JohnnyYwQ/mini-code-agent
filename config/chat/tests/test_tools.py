@@ -8,7 +8,7 @@ from unittest.mock import patch
 os.environ.setdefault("MODEL_ID", "test-model")
 os.environ.setdefault("ANTHROPIC_API_KEY", "test-api-key")
 
-from core.agent import (
+from core.tooling import (
     permission_hook,
     run_bash,
     run_edit,
@@ -22,7 +22,7 @@ class FileToolTests(TestCase):
     def test_write_and_read_file_with_line_limits(self):
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            with patch("core.agent.WORKDIR", root):
+            with patch("core.tooling.WORKDIR", root):
                 write_result = run_write(
                     "notes/session.txt",
                     "one\ntwo\nthree\n",
@@ -41,7 +41,7 @@ class FileToolTests(TestCase):
             workspace.mkdir()
             outside = root / "outside.txt"
 
-            with patch("core.agent.WORKDIR", workspace):
+            with patch("core.tooling.WORKDIR", workspace):
                 write_result = run_write("../outside.txt", "blocked")
                 with self.assertRaisesRegex(
                     ValueError,
@@ -56,7 +56,7 @@ class FileToolTests(TestCase):
     def test_edit_file_replaces_only_the_first_match(self):
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            with patch("core.agent.WORKDIR", root):
+            with patch("core.tooling.WORKDIR", root):
                 run_write("sample.txt", "alpha beta alpha")
 
                 edit_result = run_edit("sample.txt", "alpha", "omega")
@@ -68,7 +68,7 @@ class FileToolTests(TestCase):
     def test_edit_file_rejects_empty_old_text_without_changing_file(self):
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            with patch("core.agent.WORKDIR", root):
+            with patch("core.tooling.WORKDIR", root):
                 run_write("sample.txt", "original")
 
                 edit_result = run_edit("sample.txt", "", "prefix")
@@ -80,7 +80,7 @@ class FileToolTests(TestCase):
     def test_read_file_rejects_negative_limit(self):
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            with patch("core.agent.WORKDIR", root):
+            with patch("core.tooling.WORKDIR", root):
                 run_write("sample.txt", "content")
 
                 with self.assertRaisesRegex(
@@ -92,7 +92,7 @@ class FileToolTests(TestCase):
     def test_glob_finds_recursive_matches(self):
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            with patch("core.agent.WORKDIR", root):
+            with patch("core.tooling.WORKDIR", root):
                 run_write("src/nested/module.py", "pass\n")
                 run_write("src/nested/notes.txt", "notes\n")
 
@@ -110,7 +110,7 @@ class FileToolTests(TestCase):
             outside = root / "outside.py"
             outside.write_text("pass\n")
 
-            with patch("core.agent.WORKDIR", workspace):
+            with patch("core.tooling.WORKDIR", workspace):
                 matches = run_glob(str(outside))
 
         self.assertEqual(matches, "(no matches)")
@@ -120,7 +120,7 @@ class BashToolTests(TestCase):
     def test_bash_runs_in_workspace_and_returns_output(self):
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            with patch("core.agent.WORKDIR", root):
+            with patch("core.tooling.WORKDIR", root):
                 working_directory = run_bash("pwd")
                 output = run_bash("printf tool-output")
 
@@ -132,7 +132,7 @@ class ToolPermissionTests(TestCase):
     def test_write_permission_allows_workspace_path_and_rejects_escape(self):
         with TemporaryDirectory() as temp_dir:
             workspace = Path(temp_dir)
-            with patch("core.agent.WORKDIR", workspace):
+            with patch("core.tooling.WORKDIR", workspace):
                 allowed = permission_hook(
                     SimpleNamespace(
                         name="write_file",

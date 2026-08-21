@@ -17,7 +17,10 @@ from chat.application import ConversationRuntimeContext
 
 logger = logging.getLogger(__name__)
 
-load_dotenv(override=False)
+load_dotenv(override=True)
+
+if os.getenv("ANTHROPIC_BASE_URL"):
+    os.environ.pop("ANTHROPIC_AUTH_TOKEN", None)
 
 
 def _agent_config() -> AgentRuntimeConfig:

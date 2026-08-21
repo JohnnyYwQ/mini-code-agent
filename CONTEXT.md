@@ -36,6 +36,18 @@ _Avoid_: Run
 A completed exchange within a Conversation, beginning with one user message and ending with the agent's final visible reply. Its transcript may include intermediate tool activity.
 _Avoid_: Conversation, message
 
+**Conversation Transcript**:
+The ordered user and agent protocol messages that preserve a Conversation's history, including intermediate tool use and tool results.
+_Avoid_: Memory, model context
+
+**Agent Runtime**:
+A transient execution boundary that processes one Turn within one fixed workspace and Memory Context. It is not a persisted Conversation identity or a long-running background Agent.
+_Avoid_: Conversation, Agent worker
+
+**Agent Loop**:
+The repeated interaction within one Agent Runtime in which the model may request tool use, the harness returns tool results, and processing continues until a final response, failure, or round limit.
+_Avoid_: Conversation, request handler
+
 **Memory Space**:
 A stable, user-owned namespace that groups Conversations and their shared Space Memories. In the current coding-agent product, one Memory Space represents one local workspace or code repository.
 _Avoid_: Task, Conversation, run

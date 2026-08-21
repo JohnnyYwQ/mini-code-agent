@@ -64,6 +64,7 @@ The agent can invoke local tools, observe their results, and continue the conver
 ├── pyproject.toml
 ├── uv.lock
 └── config/
+    ├── cli.py
     ├── manage.py
     ├── config/
     │   ├── settings.py
@@ -80,12 +81,12 @@ The agent can invoke local tools, observe their results, and continue the conver
     │   ├── urls.py
     │   └── views.py
     ├── core/
-        ├── agent.py
         ├── agent_runtime.py
         ├── compaction.py
         ├── memory/
         ├── frontmatter.py
         ├── skills.py
+        ├── tooling.py
         └── todo.py
     └── evals/
         └── memory_retrieval/
@@ -93,7 +94,8 @@ The agent can invoke local tools, observe their results, and continue the conver
 
 Key files:
 
-- `config/core/agent.py`: tool definitions, hooks, and the CLI entry point
+- `config/cli.py`: CLI entry, Conversation selection, and terminal I/O
+- `config/core/tooling.py`: built-in tool definitions, implementations, permission policy, and hooks
 - `config/core/agent_runtime.py`: Conversation-workspace agent loop, Memory recall, and the `remember` tool
 - `config/core/memory/`: Memory extraction, hybrid retrieval, Qdrant adapter, and production composition
 - `config/evals/memory_retrieval/`: built-in retrieval cases, the LongMemEval adapter, dataset download, and evaluation entry point
@@ -169,14 +171,14 @@ http://127.0.0.1:8000/
 Run the CLI:
 
 ```bash
-uv run python config/core/agent.py
+uv run python config/cli.py
 ```
 
 The CLI creates a new Conversation by default. List or resume Conversations from the current workspace with:
 
 ```bash
-uv run python config/core/agent.py --list
-uv run python config/core/agent.py --resume <conversation-uuid>
+uv run python config/cli.py --list
+uv run python config/cli.py --resume <conversation-uuid>
 ```
 
 Exit the CLI with `q`, `exit`, an empty line, `Ctrl-C`, or EOF.
@@ -186,7 +188,7 @@ To operate on another directory while still using this project's environment, ru
 ```bash
 cd /path/to/workspace
 uv run --project /path/to/mini-code-agent \
-  python /path/to/mini-code-agent/config/core/agent.py
+  python /path/to/mini-code-agent/config/cli.py
 ```
 
 The Conversation and Memory Space bind to the current workspace where the command runs, while dependencies still come from the `mini-code-agent` project.

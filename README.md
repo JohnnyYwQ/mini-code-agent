@@ -64,6 +64,7 @@ Mini Code Agent 0.2 是一个用于学习和本地开发的小型 Django 编码�
 ├── pyproject.toml
 ├── uv.lock
 └── config/
+    ├── cli.py
     ├── manage.py
     ├── config/
     │   ├── settings.py
@@ -80,12 +81,12 @@ Mini Code Agent 0.2 是一个用于学习和本地开发的小型 Django 编码�
     │   ├── urls.py
     │   └── views.py
     ├── core/
-        ├── agent.py
         ├── agent_runtime.py
         ├── compaction.py
         ├── memory/
         ├── frontmatter.py
         ├── skills.py
+        ├── tooling.py
         └── todo.py
     └── evals/
         └── memory_retrieval/
@@ -93,7 +94,8 @@ Mini Code Agent 0.2 是一个用于学习和本地开发的小型 Django 编码�
 
 关键文件：
 
-- `config/core/agent.py`：工具定义、hook 和 CLI 入口
+- `config/cli.py`：CLI 接入、Conversation 选择和终端输入输出
+- `config/core/tooling.py`：内置工具定义、实现、权限策略和 hook
 - `config/core/agent_runtime.py`：绑定 Conversation 工作区的智能体循环、Memory 召回与 `remember`
 - `config/core/memory/`：Memory 提取、混合检索、Qdrant adapter 和 production composition
 - `config/evals/memory_retrieval/`：内置检索用例、LongMemEval adapter、数据下载与评测入口
@@ -169,14 +171,14 @@ http://127.0.0.1:8000/
 启动 CLI：
 
 ```bash
-uv run python config/core/agent.py
+uv run python config/cli.py
 ```
 
 CLI 默认创建新 Conversation。列出或恢复当前工作区的 Conversation：
 
 ```bash
-uv run python config/core/agent.py --list
-uv run python config/core/agent.py --resume <conversation-uuid>
+uv run python config/cli.py --list
+uv run python config/cli.py --resume <conversation-uuid>
 ```
 
 输入 `q`、`exit`、空行、`Ctrl-C` 或 EOF 可以退出 CLI。
@@ -186,7 +188,7 @@ uv run python config/core/agent.py --resume <conversation-uuid>
 ```bash
 cd /path/to/workspace
 uv run --project /path/to/mini-code-agent \
-  python /path/to/mini-code-agent/config/core/agent.py
+  python /path/to/mini-code-agent/config/cli.py
 ```
 
 Conversation 和 Memory Space 会绑定到执行命令时的当前工作区，而依赖仍从 `mini-code-agent` 项目加载。
