@@ -121,7 +121,7 @@ def _source_digest() -> str:
     )
     return canonical_digest(
         {
-            str(path.relative_to(Path(__file__).parents[3])): sha256_file(path)
+            str(path.relative_to(Path(__file__).parents[5])): sha256_file(path)
             for path in source_paths
         }
     )
@@ -176,7 +176,7 @@ def build_candidate_identity(
             },
         },
         "dependencies": dependency_versions,
-        "uv_lock_sha256": sha256_file(Path(__file__).parents[3] / "uv.lock"),
+        "uv_lock_sha256": sha256_file(Path(__file__).parents[5] / "uv.lock"),
         "source_sha256": _source_digest(),
     }
 

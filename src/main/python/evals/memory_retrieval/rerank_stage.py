@@ -56,7 +56,7 @@ def _source_digest() -> str:
         Path(__file__).with_name("official_metrics.py"),
         Path(__file__).parents[2] / "core" / "memory" / "bge_reranker.py",
     )
-    repo_root = Path(__file__).parents[3]
+    repo_root = Path(__file__).parents[5]
     return canonical_digest(
         {str(path.relative_to(repo_root)): sha256_file(path) for path in source_paths}
     )
@@ -114,7 +114,7 @@ def build_rerank_identity(
             "input_ranking": "rrf",
         },
         "dependencies": dependency_versions,
-        "uv_lock_sha256": sha256_file(Path(__file__).parents[3] / "uv.lock"),
+        "uv_lock_sha256": sha256_file(Path(__file__).parents[5] / "uv.lock"),
         "source_sha256": _source_digest(),
     }
 

@@ -1,9 +1,8 @@
 from unittest import TestCase
 from unittest.mock import Mock, patch
 
-from core.agent_runtime import AgentRuntimeConfig
-
 from chat.composition import _production_memory, close_production_memory
+from core.agent_runtime import AgentRuntimeConfig
 
 
 class ProductionMemoryLifecycleTests(TestCase):

@@ -50,11 +50,11 @@ ANTHROPIC_API_KEY=your_api_key
 
 ### Database and Web
 
-Create the SQLite database tables, then start Django's development server:
+The SQLite database lives at the repository root as `db.sqlite3`; templates and static assets live in `src/main/resources/`. Create the tables, then start the Django development server:
 
 ```bash
-uv run --locked python config/manage.py migrate
-uv run --locked python config/manage.py runserver
+uv run --locked python src/main/python/manage.py migrate
+uv run --locked python src/main/python/manage.py runserver
 ```
 
 Open `http://127.0.0.1:8000/` in a browser, select **New conversation**, then send a message. With no Conversation selected, the Web entry point creates one for the process's current workspace. With a Conversation selected, the new Conversation inherits that Conversation's workspace. Its sidebar shows the local User's Conversations grouped by Memory Space (workspace). New Turns run in the selected Conversation's workspace.
@@ -64,14 +64,14 @@ Open `http://127.0.0.1:8000/` in a browser, select **New conversation**, then se
 The CLI resolves its workspace from the current directory. Without arguments it creates a new Conversation and prints its UUID:
 
 ```bash
-uv run --locked python config/cli.py
+uv run --locked python src/main/python/cli.py
 ```
 
 It can list or resume only Conversations in the current Memory Space:
 
 ```bash
-uv run --locked python config/cli.py --list
-uv run --locked python config/cli.py --resume <conversation-uuid>
+uv run --locked python src/main/python/cli.py --list
+uv run --locked python src/main/python/cli.py --resume <conversation-uuid>
 ```
 
 Exit with `q`, `exit`, an empty line, `Ctrl-C`, or EOF. Moving or renaming a workspace creates a new Memory Space, so the CLI cannot resume a Conversation from the old path at the new path.
@@ -81,7 +81,7 @@ To run the Agent against another workspace while retaining this project's enviro
 ```bash
 cd /path/to/workspace
 uv run --project /path/to/mini-code-agent \
-  python /path/to/mini-code-agent/config/cli.py
+  python /path/to/mini-code-agent/src/main/python/cli.py
 ```
 
 This binds the Conversation, Memory Space, file tools, and shell to `/path/to/workspace`, while dependencies still come from `mini-code-agent`. If a Web-stored workspace no longer exists, its Conversation Transcript remains readable but new Turns and tool execution are unavailable.
@@ -118,9 +118,9 @@ Do not disable CSRF for scripting and do not commit local cookies or credentials
 
 ## Memory and Qdrant
 
-### On-demand BGE download
+### Model loading and caches
 
-Memory combines E5 dense, BM25 keyword, and BGE Reranking. `BAAI/bge-reranker-v2-m3` is lazily loaded by `BGEReranker`: its model downloads on the first Memory recall that has candidates to rerank, or during BGE evaluation. Reserve several GB of disk before the first Memory-enabled run; later runs reuse the local cache.
+Memory combines E5 dense, BM25 keyword, and BGE Reranking. Initial Memory construction loads E5 and BM25, downloading them if their caches are missing. `BAAI/bge-reranker-v2-m3` is lazily loaded by `BGEReranker`: its model downloads on the first Memory recall that has candidates to rerank, or during BGE evaluation. Reserve several GB of disk before the first Memory-enabled run; later runs reuse the local cache.
 
 If Memory initialization or retrieval fails, the current Agent Runtime logs the error and continues without recalled Memory. That does not show that model configuration or persistent storage is correct. Check environment variables, network access, model cache, and Qdrant location first.
 
@@ -164,8 +164,10 @@ After installation, these commands use the development tools defined by the lock
 uv run --locked ruff format --check .
 uv run --locked ruff check .
 uv run --locked mypy
-uv run --locked python config/manage.py test chat tests.memory
+uv run --locked python src/main/python/manage.py test tests.chat tests.memory
 ```
+
+Without test labels, `uv run --locked python src/main/python/manage.py test` also discovers all tests under `src/test/python/tests/`.
 
 Install the Git hook and run all hooks manually:
 
@@ -182,7 +184,7 @@ Generate a terminal coverage report:
 
 ```bash
 uv run --locked coverage erase
-uv run --locked coverage run config/manage.py test chat tests.memory
+uv run --locked coverage run src/main/python/manage.py test tests.chat tests.memory
 uv run --locked coverage report -m
 ```
 
@@ -192,7 +194,18 @@ Generate an HTML coverage report:
 uv run --locked coverage html
 ```
 
-The report is written to `htmlcov/index.html`. GitHub Actions uses `uv sync --locked --dev` for dependency sync, then runs Ruff format/check, mypy, coverage-backed tests, and the coverage report with Python 3.13 on pushes, pull requests, and manual dispatches.
+The report is written to `htmlcov/index.html`. Coverage measures `src/main/python/core` and `src/main/python/chat`, excluding migrations; it does not cover the complete CLI, evaluation scripts, or repository. mypy currently checks `core`. GitHub Actions uses `uv sync --locked --dev` for dependency sync, then runs Ruff format/check, mypy, coverage-backed tests, and the coverage report with Python 3.13 on pushes, pull requests, and manual dispatches.
+
+### Real-model smoke
+
+The default tests skip the smoke test that requires a real E5 model. Enabling it loads the model cache or downloads missing files:
+
+```bash
+RUN_E5_SMOKE=1 uv run --locked python src/main/python/manage.py test \
+  tests.memory.test_embedder_smoke
+```
+
+This checks real E5 embeddings, Qdrant retrieval, and User Scope. It does not call the outer chat model or replace BGE or formal CUDA evaluation.
 
 ## Troubleshooting and current limits
 
@@ -201,7 +214,7 @@ The report is written to `htmlcov/index.html`. GitHub Actions uses `uv sync --lo
 If the CLI or Web app cannot call the model, first check `MODEL_ID` and `ANTHROPIC_API_KEY` in `.env`, then confirm that optional `ANTHROPIC_BASE_URL` is a complete address for the intended service. Use `--help` to check the current CLI entry point instead of reusing an old path:
 
 ```bash
-uv run --locked python config/cli.py --help
+uv run --locked python src/main/python/cli.py --help
 ```
 
 If Memory is unavailable, check disk space for BGE, the Qdrant path or service URL, proxy bypass, and model/API credentials. Memory's fallback only means the Agent Runtime may continue; it does not mean Memory is configured correctly.

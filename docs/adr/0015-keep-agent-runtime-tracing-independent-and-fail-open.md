@@ -1,0 +1,3 @@
+# Keep Agent Runtime tracing independent and fail-open
+
+Each Agent Runtime execution emits one append-only Agent Runtime Trace of structured Runtime Events, persisted independently from Conversation Transcript; Tool Call Trace and Memory-focused diagnostics are projections of that unified event order rather than separate histories. Operations that may be interrupted emit a starting Event followed by a terminal Event, while the Runtime itself ends as COMPLETED or FAILED independently of child operation outcomes; an absent terminal outcome leaves an incomplete Trace. Trace persistence is diagnostic and fail-open, so its own failure must not change the Runtime, Tool Call, or Memory operation outcome.

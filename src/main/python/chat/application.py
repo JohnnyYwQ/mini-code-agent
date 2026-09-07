@@ -61,6 +61,7 @@ class AgentResponseError(RuntimeError):
 
 
 def _get_local_conversation(*, conversation_id: UUID) -> Conversation:
+    """get local conversation from sql"""
     try:
         return Conversation.objects.select_related("memory_space").get(
             id=conversation_id,
@@ -158,6 +159,7 @@ def load_conversation_messages(
     *,
     conversation_id: UUID,
 ) -> list[dict[str, object]]:
+    """load conversation messages from database"""
     conversation = _get_local_conversation(conversation_id=conversation_id)
     return [
         {"role": message.role, "content": message.content}
@@ -207,6 +209,9 @@ def prepare_conversation_runtime(
     *,
     conversation_id: UUID,
 ) -> ConversationRuntimeContext:
+    """preprae conversation runtime(which means with id,
+    workspace and memory context(user memory or space memory))
+    """
     conversation = _get_local_conversation(conversation_id=conversation_id)
     workspace_path = Path(conversation.memory_space.workspace_path)
     if not workspace_path.is_dir():

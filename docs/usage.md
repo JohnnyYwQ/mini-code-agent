@@ -50,11 +50,11 @@ ANTHROPIC_API_KEY=your_api_key
 
 ### 数据库与 Web
 
-先创建 SQLite 数据库表，再启动 Django 开发服务器：
+SQLite 数据库保存在项目根目录 `db.sqlite3`；页面模板和静态资源位于 `src/main/resources/`。先创建数据库表，再启动 Django 开发服务器：
 
 ```bash
-uv run --locked python config/manage.py migrate
-uv run --locked python config/manage.py runserver
+uv run --locked python src/main/python/manage.py migrate
+uv run --locked python src/main/python/manage.py runserver
 ```
 
 在浏览器中打开 `http://127.0.0.1:8000/`，点击 **New conversation** 后即可发送消息。没有选中 Conversation 时，Web 入口会为当前进程的工作目录创建 Conversation；选中已有 Conversation 时，新的 Conversation 会继承该 Conversation 的工作区。侧栏按 Memory Space（工作区）分组展示本地 User 的 Conversation。新的 Turn 会继续在所选 Conversation 的工作区运行。
@@ -64,14 +64,14 @@ uv run --locked python config/manage.py runserver
 CLI 从当前目录解析工作区。没有参数时会创建一个新的 Conversation 并打印其 UUID：
 
 ```bash
-uv run --locked python config/cli.py
+uv run --locked python src/main/python/cli.py
 ```
 
 仅能列出或恢复当前 Memory Space 的 Conversation：
 
 ```bash
-uv run --locked python config/cli.py --list
-uv run --locked python config/cli.py --resume <conversation-uuid>
+uv run --locked python src/main/python/cli.py --list
+uv run --locked python src/main/python/cli.py --resume <conversation-uuid>
 ```
 
 输入 `q`、`exit`、空行、`Ctrl-C` 或 EOF 退出。移动或重命名工作区会产生新的 Memory Space，不能通过 CLI 从新路径恢复旧路径的 Conversation。
@@ -81,7 +81,7 @@ uv run --locked python config/cli.py --resume <conversation-uuid>
 ```bash
 cd /path/to/workspace
 uv run --project /path/to/mini-code-agent \
-  python /path/to/mini-code-agent/config/cli.py
+  python /path/to/mini-code-agent/src/main/python/cli.py
 ```
 
 这会把 Conversation、Memory Space、文件工具和 shell 绑定到 `/path/to/workspace`，而依赖仍来自 `mini-code-agent`。若 Web 中保存的工作区已不存在，其 Conversation Transcript 仍可阅读，但无法发起新的 Turn 或执行工具。
@@ -118,9 +118,9 @@ curl -X POST http://127.0.0.1:8000/api/chat/ \
 
 ## Memory 与 Qdrant
 
-### 按需下载 BGE
+### 模型加载与缓存
 
-Memory 使用 E5 dense、BM25 keyword 和 BGE Reranking。`BAAI/bge-reranker-v2-m3` 由 `BGEReranker` 延迟加载：第一次存在候选的 Memory recall，或运行 BGE 评测时会下载模型。请在首次 Memory-enabled run 前预留数 GB 磁盘空间；之后会复用本地缓存。
+Memory 使用 E5 dense、BM25 keyword 和 BGE Reranking。首次创建 Memory 时会加载 E5 与 BM25，缺少缓存时需要下载。`BAAI/bge-reranker-v2-m3` 由 `BGEReranker` 延迟加载：第一次存在候选的 Memory recall，或运行 BGE 评测时会下载模型。请在首次 Memory-enabled run 前预留数 GB 磁盘空间；之后会复用本地缓存。
 
 Memory 初始化或检索失败时，当前 Agent Runtime 会记录错误并继续运行，但不带 recalled Memory。这不表示模型配置或持久存储已经正确；应先检查环境变量、网络访问、模型缓存和 Qdrant 位置。
 
@@ -164,8 +164,10 @@ Agent Runtime 将 `bash`、`read_file`、`write_file`、`edit_file` 等工具固
 uv run --locked ruff format --check .
 uv run --locked ruff check .
 uv run --locked mypy
-uv run --locked python config/manage.py test chat tests.memory
+uv run --locked python src/main/python/manage.py test tests.chat tests.memory
 ```
+
+不指定测试标签时，`uv run --locked python src/main/python/manage.py test` 同样会自动发现 `src/test/python/tests/` 下的全部测试。
 
 安装 Git hook 并手动运行全部 hook：
 
@@ -182,7 +184,7 @@ pre-commit 在提交时运行 Ruff（可能自动修复或格式化）和 mypy�
 
 ```bash
 uv run --locked coverage erase
-uv run --locked coverage run config/manage.py test chat tests.memory
+uv run --locked coverage run src/main/python/manage.py test tests.chat tests.memory
 uv run --locked coverage report -m
 ```
 
@@ -192,7 +194,18 @@ uv run --locked coverage report -m
 uv run --locked coverage html
 ```
 
-报告写入 `htmlcov/index.html`。GitHub Actions 在 push、pull request 和手动触发时，以 `uv sync --locked --dev` 同步依赖，并在 Python 3.13 上运行 Ruff format/check、mypy、带 coverage 的测试和 coverage 报告。
+报告写入 `htmlcov/index.html`。覆盖率统计范围为 `src/main/python/core` 与 `src/main/python/chat`，排除 migrations；它不代表 CLI、评测脚本或整个仓库的覆盖率。mypy 当前检查 `core`。GitHub Actions 在 push、pull request 和手动触发时，以 `uv sync --locked --dev` 同步依赖，并在 Python 3.13 上运行 Ruff format/check、mypy、带 coverage 的测试和 coverage 报告。
+
+### 真实模型 smoke
+
+默认测试会跳过需要真实 E5 模型的 smoke。单独启用它会加载模型缓存，缺少缓存时需要下载：
+
+```bash
+RUN_E5_SMOKE=1 uv run --locked python src/main/python/manage.py test \
+  tests.memory.test_embedder_smoke
+```
+
+该测试检查真实 E5 embedding、Qdrant 检索和 User Scope；不调用外层聊天模型，也不替代 BGE 或正式 CUDA 评测。
 
 ## 故障排查与当前限制
 
@@ -201,7 +214,7 @@ uv run --locked coverage html
 若 CLI 或 Web 无法调用模型，先确认 `.env` 中的 `MODEL_ID` 与 `ANTHROPIC_API_KEY`，再检查可选 `ANTHROPIC_BASE_URL` 是否为目标服务的完整地址。使用 `--help` 检查 CLI 入口，而不是复用旧路径：
 
 ```bash
-uv run --locked python config/cli.py --help
+uv run --locked python src/main/python/cli.py --help
 ```
 
 若 Memory 不可用，先检查 BGE 下载所需的磁盘空间、Qdrant 路径或服务 URL、代理 bypass 和模型/API 凭据。Memory 失败的降级只保证 Agent Runtime 可以继续，不保证 Memory 已配置完成。

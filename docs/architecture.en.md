@@ -36,15 +36,15 @@ Web and CLI are adapters: they neither decide Memory ownership nor run the model
 
 ### Web and CLI entry points
 
-Web lives in [`config/chat/views.py`](../config/chat/views.py), which provides the page, Conversation selection, creation, and the `/api/chat/` JSON adapter. The page can browse every Conversation owned by the local User and groups them by the Memory Space workspace. If a workspace has disappeared, its Transcript remains readable but a new Turn returns a conflict error.
+Web lives in [`src/main/python/chat/views.py`](../src/main/python/chat/views.py), which provides the page, Conversation selection, creation, and the `/api/chat/` JSON adapter. The page can browse every Conversation owned by the local User and groups them by the Memory Space workspace. If a workspace has disappeared, its Transcript remains readable but a new Turn returns a conflict error.
 
-The current CLI entry point is [`config/cli.py`](../config/cli.py), not the former `config/core/agent.py`. By default it resolves the launch directory as its workspace and creates a Conversation. `--list` and `--resume` only expose Conversations in the Memory Space for that workspace. Web and CLI share one persistent, non-login local User.
+The current CLI entry point is [`src/main/python/cli.py`](../src/main/python/cli.py), not the former `src/main/python/core/agent.py`. By default it resolves the launch directory as its workspace and creates a Conversation. `--list` and `--resume` only expose Conversations in the Memory Space for that workspace. Web and CLI share one persistent, non-login local User.
 
-Both adapters call the same Application use cases and the shared composition in [`config/chat/composition.py`](../config/chat/composition.py). Web has no interactive confirmation channel, so potentially destructive commands are rejected; CLI may ask for terminal confirmation.
+Both adapters call the same Application use cases and the shared composition in [`src/main/python/chat/composition.py`](../src/main/python/chat/composition.py). Web has no interactive confirmation channel, so potentially destructive commands are rejected; CLI may ask for terminal confirmation.
 
 ### Application
 
-[`config/chat/application.py`](../config/chat/application.py) is the trusted orchestration boundary for Conversations and Turns. It:
+[`src/main/python/chat/application.py`](../src/main/python/chat/application.py) is the trusted orchestration boundary for Conversations and Turns. It:
 
 - finds a Conversation through the local User and verifies ownership;
 - derives stable IDs, the canonical workspace path, and Memory Context from its Memory Space;
@@ -56,7 +56,7 @@ A client cannot submit `user_id` or `space_id` to widen Scope. The entry point s
 
 ### Agent Runtime and Agent Loop
 
-The Agent Runtime in [`config/core/agent_runtime.py`](../config/core/agent_runtime.py) is a transient boundary for one Turn. It binds one workspace, one Memory Context, tool collection, Todo state, SkillManager, and ContextCompactor. The next Turn resolves the persisted Conversation again and constructs a new Runtime.
+The Agent Runtime in [`src/main/python/core/agent_runtime.py`](../src/main/python/core/agent_runtime.py) is a transient boundary for one Turn. It binds one workspace, one Memory Context, tool collection, Todo state, SkillManager, and ContextCompactor. The next Turn resolves the persisted Conversation again and constructs a new Runtime.
 
 The Agent Loop is the repeated process inside that Runtime: prepare model context, call the Anthropic Messages API, and append the assistant message. When `stop_reason` is `tool_use`, it executes permitted tools, sends their `tool_result` blocks back as a user-role protocol message, and continues. The loop stops on a final response or the round limit.
 
@@ -66,13 +66,13 @@ Context compaction changes only the working context for later model calls and ma
 
 ### Tool execution
 
-[`config/core/tooling.py`](../config/core/tooling.py) defines built-in tools, workspace path checks, permission hooks, and logging/output hooks. Agent Runtime composes Todo, skills, compaction, and `remember` around them. File tools must remain inside the Runtime's fixed workspace, and shell commands use that workspace as `cwd`.
+[`src/main/python/core/tooling.py`](../src/main/python/core/tooling.py) defines built-in tools, workspace path checks, permission hooks, and logging/output hooks. Agent Runtime composes Todo, skills, compaction, and `remember` around them. File tools must remain inside the Runtime's fixed workspace, and shell commands use that workspace as `cwd`.
 
 The permission layer is not a security sandbox. A denylist blocks a small set of explicit commands and potentially destructive commands depend on the entry point's confirmation policy; ordinary `bash` still uses `shell=True`. Most tool failures become `tool_result` content so the Agent Loop can decide how to continue instead of immediately becoming an application error response.
 
 ### Memory
 
-[`config/core/memory/`](../config/core/memory/) receives the Memory Context established by Application; it never creates, changes, or authorizes a User or Memory Space. Before the first model call in every Turn, it searches the current User Memory and current Space Memory with the latest user query. E5 dense and BM25 candidates are fused and may be reranked by BGE. At most five recalled Memories are injected as temporary system context.
+[`src/main/python/core/memory/`](../src/main/python/core/memory/) receives the Memory Context established by Application; it never creates, changes, or authorizes a User or Memory Space. Before the first model call in every Turn, it searches the current User Memory and current Space Memory with the latest user query. E5 dense and BM25 candidates are fused and may be reranked by BGE. At most five recalled Memories are injected as temporary system context.
 
 `remember` is a no-argument tool available to the outer model. Its trusted handler supplies the current Memory Context and builds an extraction window from visible user/assistant text in up to five recent completed Turns plus the current Turn; tool activity is excluded. The extractor can classify a proposal only as User Memory or Space Memory and cannot provide ownership IDs.
 
@@ -80,7 +80,7 @@ Qdrant currently stores Memory Source Text and retrieval payload. ADD validates 
 
 ### Persistence and the external API
 
-[`config/chat/models.py`](../config/chat/models.py) persists Memory Space, Conversation, and ordered ConversationMessage records through Django. A Conversation has a stable UUID, title, timestamps, and exactly one Memory Space. ConversationMessage JSON preserves text, `tool_use`, and `tool_result` blocks; Web and CLI display only a visible-text projection.
+[`src/main/python/chat/models.py`](../src/main/python/chat/models.py) persists Memory Space, Conversation, and ordered ConversationMessage records through Django. A Conversation has a stable UUID, title, timestamps, and exactly one Memory Space. ConversationMessage JSON preserves text, `tool_use`, and `tool_result` blocks; Web and CLI display only a visible-text projection.
 
 The Anthropic Messages API is the Agent Loop's external inference boundary, not the persistence layer. Each response remains in the Runtime's generated list until the complete run returns a final visible assistant reply. Only then does Application append the list to the Conversation Transcript. Qdrant is the current source for Memory and remains separate from the Django Transcript.
 
@@ -150,11 +150,14 @@ The Runtime returns only new assistant and tool-result protocol messages for thi
 - recalled Memory uses failure-tolerant degradation, so a successful Turn does not prove that Memory infrastructure was available.
 - Memory UPDATE/DELETE, complete Memory Event history, cross-Qdrant/Django transactions, and automatic index recovery are not implemented.
 
+
+[ADR-0015](adr/0015-keep-agent-runtime-tracing-independent-and-fail-open.md) defines the planned independently persisted Agent Runtime Trace. That storage is not implemented in the current code; tool hook output and the API’s empty `tool_trace` do not constitute a complete runtime trace.
+
 ## Implementation and decision index
 
-- Entry and orchestration: [`views.py`](../config/chat/views.py), [`cli.py`](../config/cli.py), [`application.py`](../config/chat/application.py), [`composition.py`](../config/chat/composition.py)
-- Execution: [`agent_runtime.py`](../config/core/agent_runtime.py), [`tooling.py`](../config/core/tooling.py), [`compaction.py`](../config/core/compaction.py)
-- State: [`models.py`](../config/chat/models.py), [`memory/`](../config/core/memory/)
+- Entry and orchestration: [`views.py`](../src/main/python/chat/views.py), [`cli.py`](../src/main/python/cli.py), [`application.py`](../src/main/python/chat/application.py), [`composition.py`](../src/main/python/chat/composition.py)
+- Execution: [`agent_runtime.py`](../src/main/python/core/agent_runtime.py), [`tooling.py`](../src/main/python/core/tooling.py), [`compaction.py`](../src/main/python/core/compaction.py)
+- State: [`models.py`](../src/main/python/chat/models.py), [`memory/`](../src/main/python/core/memory/)
 - Scope and trust: [ADR-0002](adr/0002-user-and-space-memory-scopes.md), [ADR-0003](adr/0003-share-one-local-user-across-entry-points.md), [ADR-0004](adr/0004-locate-memory-spaces-by-workspace-path.md)
 - Conversation and Turn: [ADR-0005](adr/0005-persist-and-resume-conversations.md), [ADR-0006](adr/0006-retrieve-memory-for-each-turn.md), [ADR-0007](adr/0007-extract-memory-from-a-five-turn-window.md), [ADR-0008](adr/0008-bind-agent-runtime-to-conversation-workspace.md)
 

@@ -2,10 +2,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
-from core.memory.memory import MemoryContext
-from django.contrib.auth import get_user_model
-from django.test import TestCase
-
 from chat.application import (
     AgentResponseError,
     ConversationNotFoundError,
@@ -22,6 +18,9 @@ from chat.application import (
     run_conversation_turn,
     start_conversation,
 )
+from core.memory.memory import MemoryContext
+from django.contrib.auth import get_user_model
+from django.test import TestCase
 
 
 class StartConversationTests(TestCase):

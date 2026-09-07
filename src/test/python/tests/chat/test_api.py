@@ -3,13 +3,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from django.test import TestCase
-
 from chat.application import (
     append_conversation_message,
     load_conversation_messages,
     start_conversation,
 )
+from django.test import TestCase
 
 
 class ChatApiJsonFallbackTests(TestCase):

@@ -9,8 +9,8 @@ The person who owns Memory Spaces, Conversations, and Memories. In the current p
 _Avoid_: Account, Login
 
 **Memory**:
-A current, retrievable recollection retained for later agent interactions. It belongs to exactly one User, is either User Memory or Space Memory, and retains one stable identity as its content changes.
-_Avoid_: MemoryRecord, database record
+A retrievable recollection retained for later agent interactions. It belongs to exactly one User, is either User Memory or Space Memory, supplies non-authoritative supplemental context, may become stale, and retains one stable identity as its content changes.
+_Avoid_: MemoryRecord, database record, Knowledge Base Entry, source of truth
 
 **User Memory**:
 A Memory available across all Memory Spaces owned by one User. It is not limited to any one Memory Space.
@@ -44,9 +44,29 @@ _Avoid_: Memory, model context
 A transient execution boundary that processes one Turn within one fixed workspace and Memory Context. It is not a persisted Conversation identity or a long-running background Agent.
 _Avoid_: Conversation, Agent worker
 
+**Agent Runtime Trace**:
+The ordered diagnostic history emitted by one Agent Runtime. It persists independently from Conversation Transcript, records observable runtime operations and outcomes even when execution fails, and may be projected into specialized traces such as Tool Call Trace.
+_Avoid_: Conversation Transcript, Turn history, log output
+
+**Runtime Event**:
+An immutable, structured diagnostic observation within one Agent Runtime Trace. It describes one runtime operation or outcome and is distinct from model protocol messages, successful Memory changes, and incidental process log output.
+_Avoid_: Log Line, Tool Result, Conversation Message, Memory Event
+
+**Runtime Outcome**:
+The terminal result of one Agent Runtime execution: COMPLETED when the Agent Loop reaches a terminal model response, or FAILED when execution cannot continue or is deliberately stopped. It is independent of individual Runtime Event outcomes and does not judge whether the User's task succeeded; a Trace with no terminal Runtime Outcome is incomplete rather than a third outcome.
+_Avoid_: Task Outcome, Tool Call Outcome, aggregate health score
+
 **Agent Loop**:
 The repeated interaction within one Agent Runtime in which the model may request tool use, the harness returns tool results, and processing continues until a final response, failure, or round limit.
 _Avoid_: Conversation, request handler
+
+**Tool Call**:
+A request by the model to invoke one named tool during a Turn, tracked from its request through permission checking to its execution outcome.
+_Avoid_: Hook, Tool Result
+
+**Tool Call Trace**:
+The projection of one Agent Runtime Trace that follows directly observable Tool Call requests, permission decisions, executions, and outcomes. It retains bounded diagnostic inputs, outputs, and explicit file changes without claiming to reconstruct arbitrary side effects.
+_Avoid_: Agent Runtime Trace, Conversation Transcript, Hook output
 
 **Memory Space**:
 A stable, user-owned namespace that groups Conversations and their shared Space Memories. In the current coding-agent product, one Memory Space represents one local workspace or code repository.
@@ -63,6 +83,10 @@ _Avoid_: Search metadata, optional filter
 **Memory Context**:
 The trusted User and Memory Space in which one Conversation is being processed. It bounds the possible Scopes but does not decide whether each extracted Memory becomes User Memory or Space Memory.
 _Avoid_: Scope, filter
+
+**Recall**:
+A query-driven selection of zero or more Memories visible within one Memory Context. Visibility makes a Memory eligible but never guarantees that it will be returned.
+_Avoid_: Full history, guaranteed retrieval, caller-filtered search
 
 **Source Text**:
 The authoritative human-readable content of a Memory from which retrieval representations can be derived.

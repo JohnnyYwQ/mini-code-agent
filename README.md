@@ -6,84 +6,58 @@
 ![Python 3.13+](https://img.shields.io/badge/Python-3.13%2B-3776AB)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-围绕**有状态 Coding Agent** 构建的个人工程实践：让 Conversation 可持久恢复，让 Memory
-在明确的 User/Space Scope 中跨 Turn 与跨 Conversation 工作，并把模型、工具、权限和上下文管理
-收拢到一次性的 Agent Runtime 中。
+**支持会话恢复、跨会话 Memory 和工作区工具调用的 Coding Agent。**
 
-Mini Code Agent 不是教程项目，也不以生产级 Agent 自居。它关注的是一组可以运行、测试和评测的
-工程边界：Django Web/CLI、Anthropic Messages API、工作区工具、Qdrant Memory、混合检索、
-BGE Reranking，以及可复现的 LongMemEval Retrieval Baseline。
+通过 Web 或 CLI 在本地代码仓库中与 Agent 协作：执行工具、恢复历史会话，并按需召回用户偏好和项目约定。
+项目围绕 Agent 的状态管理、工具协议、上下文压缩与检索评测展开，使用 Python/Django、Anthropic Messages API 和 Qdrant 实现。
 
-> **适用范围：** 当前版本面向可信本地、单 User 环境。Agent 可以执行 shell 命令并修改工作区文件；
-> Web、JSON API 和工具执行层均不具备生产认证或完整沙箱，请勿直接暴露到公网。
+> 当前版本用于可信本地、单用户环境。文件工具检查工作区路径，shell 以工作区为执行目录；尚无生产认证或完整沙箱。
 
-## 工程重点
+## 核心能力
 
-### 持久 Conversation 与作用域 Memory
+### 会话持久化与跨会话 Memory
 
-- Conversation Transcript 持久化完整的用户、助手和工具协议消息，进程重启后仍可恢复。
-- 一个 Memory Space 对应一个本地工作区，可由多个 Conversation 共享 Space Memory。
-- User Memory 跨该 User 的所有 Memory Space 可用；Space Memory 只在目标 Memory Space 内可见。
-- 每个 Turn 自动组合 E5 dense 与 BM25 keyword 候选，经 RRF 融合后由
-  `BAAI/bge-reranker-v2-m3` 重排。
-- recalled Memory 只作为当前 Turn 的临时 Memory Context，不会伪装成 Conversation Transcript。
+- **会话恢复：** SQLite 持久化 Conversation Transcript，保存用户、助手与工具协议消息；Web 和 CLI 共用同一应用层，支持继续已有 Conversation。
+- **作用域 Memory：** User Memory 保存跨工作区可用的信息，Space Memory 在同一工作区的多个 Conversation 间共享。身份和 Scope 由应用层确定。
+- **提取与召回：** 模型通过无参数 `remember` 触发滚动窗口提取；每个 Turn 默认用 E5 + BM25 + RRF + BGE 检索，最多注入 5 条 Memory 作为临时 system context。
 
-### Agent Runtime 与 Agent Loop
+### Agent Runtime 与工具执行
 
-- Web 和 CLI 都通过同一个 Application 边界解析 Conversation、User、Memory Space 与工作区。
-- 每个 Turn 创建一个绑定固定工作区和 Memory Context 的 Agent Runtime，不把 Conversation
-  变成长驻进程。
-- Agent Loop 在 Anthropic Messages API 的 `tool_use` / `tool_result` 协议上循环，直到最终回复、
-  失败或达到轮次限制。
-- 内置工具覆盖 shell、文件读写、glob、todo、skills、上下文压缩与 `remember`；权限 hook
-  在执行前后介入。
-- 上下文压缩只改变后续模型调用看到的工作上下文，不覆盖数据库中的权威 Transcript。
+- **协议循环：** 每个 Turn 创建独立 Agent Runtime，处理 `tool_use` / `tool_result`、工具错误和轮次上限，直到获得最终回复或运行失败。
+- **工具与扩展：** 支持 shell、文件读写、glob、todo 和本地 skills；执行前检查权限，CLI 对潜在破坏性命令提供交互确认。
+- **上下文管理：** 对长工具输出落盘、裁剪旧输出，并在达到估算上下文阈值时生成摘要；压缩模型工作上下文，同时保留数据库中的完整 Transcript。
 
-### 可运行的端到端工程
+### 检索评测与工程验证
 
-- Django Web UI、CSRF 保护的 JSON API 与 `prompt_toolkit` CLI 共用同一应用与持久化路径。
-- SQLite 保存 Conversation；Qdrant 保存可检索 Memory，并支持嵌入式或 service URL。
-- 文件工具限制在 Conversation 绑定的工作区内；CLI 可对潜在破坏性命令进行交互确认。
-- Python 3.13、`uv.lock`、Django tests、Ruff、mypy、coverage、pre-commit 与 GitHub Actions
-  组成可复现的开发检查。
-
-## 技术组成
-
-| 层次 | 当前实现 |
-| --- | --- |
-| 应用 | Python 3.13、Django 5.2、SQLite |
-| 模型 | Anthropic Python SDK、Messages API |
-| Memory | Qdrant、FastEmbed E5、BM25、RRF、FlagEmbedding BGE |
-| 入口 | Django templates、原生 JavaScript、`prompt_toolkit` |
-| Agent 能力 | 工作区工具、permission hooks、skills、todo、compaction |
-| 工程检查 | uv、Ruff、mypy、coverage、pre-commit、GitHub Actions |
+- **可比较的检索链：** 在 LongMemEval-S 上分别记录 BM25、E5、RRF 融合及 BGE 重排结果，使用一致的语料和评分口径。
+- **可恢复的评测：** 候选召回与重排分进程执行，按数据、模型、源码和参数生成缓存身份；逐题落盘，支持中断恢复，并校验实际 CUDA 执行。
+- **自动化检查：** 使用 Django tests、Ruff、mypy、coverage、pre-commit 和 GitHub Actions；依赖统一由 `uv.lock` 锁定。
 
 ## LongMemEval 检索结果
 
-固定 CUDA 运行 `20260816-cu124-v1` 使用官方 cleaned LongMemEval-S 数据、官方 user-only
-索引范围、eligibility 与 `@5`/`@10` 公式，评测本项目的 E5 + BM25 + RRF + BGE 检索链。
-500 个源样本中，30 个 Abstention Case 与 51 个缺少 user-side 目标证据的样本按协议排除，
-最终计分 419 个样本。
+既有运行记录 `20260816-cu124-v1` 在官方 cleaned LongMemEval-S 数据上，按 user-only 索引与检索评分协议计算以下结果。
+500 个源样本排除 30 个 Abstention Case 和 51 个无 user-side 目标证据的样本，最终计分 **419 个样本**。
 
 | Retrieval pipeline | RecallAll@5 | NDCG@5 | RecallAll@10 | NDCG@10 |
 | --- | ---: | ---: | ---: | ---: |
 | E5 + BM25 + RRF + BGE | **92.60%** | **94.74%** | **97.61%** | **95.69%** |
 
-这些数字只衡量**检索**，不是端到端 LongMemEval QA、官方 leaderboard 成绩或通用 Agent
-性能结论。正式运行的 baseline、逐题记录与日志尚未取回仓库并独立复核；当前页面报告的是已记录结果，
-不把缺失的产物描述成已发布证据。
+在该记录中，BGE 相对未重排的 RRF 将 RecallAll@5 提高 **1.91 个百分点**、NDCG@5 提高 **2.57 个百分点**。
 
-[查看完整链路对比、排除规则、模型 revision、CUDA 验证、哈希、限制与复现流程 →](docs/memory-and-evaluation.md)
+**证据状态：** 正式 baseline、逐题记录和日志尚未在仓库发布并独立复核，以上为既有记录值。
+指标衡量检索排序，不代表端到端回答准确率或官方 leaderboard 成绩；产品 Memory 与评测的候选配置也有所不同。
 
-## 架构摘要
+[完整对比、产品与评测差异、排除规则、运行参数和复现流程 →](docs/memory-and-evaluation.md)
+
+## 一轮请求如何执行
 
 ```mermaid
 flowchart LR
-    Web[Web UI / JSON API] --> App[Application]
+    Web[Web / JSON API] --> App[Application]
     CLI[CLI] --> App
-    App --> DB[(Conversation + Transcript)]
+    App --> DB[(Conversation Transcript)]
     App --> Runtime[Agent Runtime]
-    Runtime --> Memory[User + Space Memory]
+    Runtime --> Memory[User / Space Memory]
     Memory --> Qdrant[(Qdrant)]
     Runtime --> Loop[Agent Loop]
     Loop <--> API[Anthropic Messages API]
@@ -91,22 +65,21 @@ flowchart LR
     Tools --> Workspace[(Workspace)]
 ```
 
-一次 Turn 的关键路径：
+1. Application 根据 Conversation 解析可信 User、Memory Space 和工作区，先持久化用户消息。
+2. 为本 Turn 创建 Agent Runtime，检索当前 Scope 内的 Memory，准备模型工作上下文。
+3. Agent Loop 调用模型、检查并执行工具、返回工具结果；文件工具校验路径，shell 使用工作区作为 `cwd`。
+4. 得到可见最终回复后，原子追加本轮生成的协议消息；运行失败时保留用户消息，不提交部分生成的 Transcript。
 
-1. Web 或 CLI 选择/创建 Conversation；Application 从持久化记录可信地推导 User、
-   Memory Space 与工作区。
-2. Application 先保存用户消息，再为本 Turn 创建 Agent Runtime，并召回 Scope 内 Memory。
-3. Agent Loop 调用模型和获准工具；工具始终在 Conversation 绑定的工作区与权限策略内运行。
-4. 成功后，助手与工具协议消息作为有序批次写入 Conversation Transcript；失败时不持久化部分生成结果。
+Memory 初始化或召回失败时，Agent 记录错误并继续当前 Turn。工具已经产生的文件修改或 Memory 写入不会随 Transcript 提交失败而回滚。
 
-[阅读完整架构、职责边界、领域对象与真实 Turn 数据流 →](docs/architecture.md)
+[完整职责边界、领域对象与失败处理 →](docs/architecture.md)
 
 ## 快速开始
 
 要求 Python 3.13+、[uv](https://docs.astral.sh/uv/getting-started/installation/) 以及可用的
 Anthropic API 或兼容端点。
 
-> Memory 首次召回时会按需下载 BGE reranker，请提前预留数 GB 磁盘空间。
+> 首次构建 Memory 会加载 E5/BM25；首次对非空候选重排时会加载 BGE。缺少模型缓存时需要下载，请预留数 GB 磁盘空间。
 
 ```bash
 git clone https://github.com/JohnnyYwQ/mini-code-agent.git
@@ -126,54 +99,90 @@ ANTHROPIC_API_KEY=your_api_key
 启动 Web：
 
 ```bash
-uv run --locked python config/manage.py migrate
-uv run --locked python config/manage.py runserver
+uv run --locked python src/main/python/manage.py migrate
+uv run --locked python src/main/python/manage.py runserver
 ```
 
 打开 `http://127.0.0.1:8000/`，新建 Conversation 后即可开始。也可以使用 CLI：
 
 ```bash
-uv run --locked python config/cli.py
-uv run --locked python config/cli.py --list
-uv run --locked python config/cli.py --resume <conversation-uuid>
+uv run --locked python src/main/python/cli.py
+uv run --locked python src/main/python/cli.py --list
+uv run --locked python src/main/python/cli.py --resume <conversation-uuid>
 ```
 
 CLI 从启动时的当前目录解析工作区；Web 与 CLI 共享同一个不可登录的本地 User。完整环境变量、
 其他工作区运行方式、JSON API、Qdrant 配置与开发命令见[使用与贡献指南](docs/usage.md)。
 
-## 当前边界
+## 项目结构
 
-- 仅支持可信本地、单 User 使用；没有登录、API token、多 User 隔离或远程部署认证。
-- `bash` 使用系统 shell；denylist 和工作区路径检查不是完整安全沙箱。
-- Django 仍使用开发设置；嵌入式 Qdrant 适合单进程，并发入口应改用共享 Qdrant 服务。
-- 模型回复尚未流式输出，Web 也没有完整工具调用轨迹可视化。
-- Memory UPDATE/DELETE、Memory Event 接入和自动索引恢复尚未完成。
-- 工作区移动或重命名不会自动迁移既有 Memory Space。
+源码、资源与测试采用 `src/main`、`src/test` 布局，运行和依赖管理使用 Python 与 uv。
+
+```text
+mini-code-agent/
+├── src/
+│   ├── main/
+│   │   ├── python/
+│   │   │   ├── manage.py
+│   │   │   ├── cli.py
+│   │   │   ├── config/
+│   │   │   ├── chat/
+│   │   │   ├── core/
+│   │   │   │   └── memory/
+│   │   │   └── evals/
+│   │   │       └── memory_retrieval/
+│   │   └── resources/
+│   │       ├── templates/chat/
+│   │       └── static/chat/
+│   └── test/
+│       └── python/tests/
+│           ├── chat/
+│           └── memory/
+├── scripts/
+├── docs/
+├── pyproject.toml
+└── uv.lock
+```
+
+`config` 保存 Django 配置，`chat` 承载会话应用层和 Web 入口，`core` 承载 Agent 与 Memory，`evals` 保存独立评测代码。
+本地 SQLite 数据库位于根目录 `db.sqlite3`，不纳入版本控制。
+
+## 开发检查
+
+```bash
+uv run --locked ruff format --check .
+uv run --locked ruff check .
+uv run --locked mypy
+uv run --locked python src/main/python/manage.py test
+```
+
+默认测试入口自动发现 `src/test/python/tests/`。覆盖率范围、真实模型 smoke 与 CI 命令见[使用与贡献指南](docs/usage.md)。
+
+## 当前边界与后续工作
+
+| 方向 | 当前状态 | 后续工作 |
+| --- | --- | --- |
+| Memory | 已实现提取、ADD、内容去重和作用域召回 | UPDATE/DELETE、Memory Event 与索引恢复 |
+| 运行反馈 | 同步回复，终端工具 hook 输出 | 独立持久化运行轨迹、Web 工具轨迹、流式响应 |
+| 评测证据 | 已有运行记录和复现代码 | 取回、独立校验并发布正式产物 |
+| 使用范围 | 可信本地单用户；嵌入式 Qdrant 供单进程使用 | 并发入口使用共享 Qdrant 服务；远程场景需认证与隔离 |
+
+工作区移动或重命名不会自动迁移既有 Memory Space。详细运行限制见[使用指南](docs/usage.md)。
 
 ## 文档
 
 | 文档 | 内容 |
 | --- | --- |
-| [架构指南](docs/architecture.md) | Web/CLI、Application、Agent Runtime、Agent Loop、工具、持久化与一轮 Turn |
-| [Memory 与评测](docs/memory-and-evaluation.md) | Scope、召回链、LongMemEval 协议、完整结果、证据状态与 CUDA 复现 |
-| [使用与贡献](docs/usage.md) | 安装、配置、Web/CLI、JSON API、安全、Qdrant、测试与 CI |
+| [架构指南](docs/architecture.md) | 应用层、Agent Runtime、协议循环、状态与失败处理 |
+| [Memory 与评测](docs/memory-and-evaluation.md) | 提取和召回、LongMemEval 协议、结果与复现 |
+| [使用与贡献](docs/usage.md) | 配置、Web/CLI、API、存储、测试与 CI |
+| [Agent 开发简历素材](docs/project-resume.md) | 可直接使用的项目描述、实现证据与面试展开点 |
 
-所有公开指南均提供结构和事实对应的[英文版本](README.en.md)。
+三篇核心技术指南均提供对应的英文版本；领域词汇与设计决策见 [CONTEXT.md](CONTEXT.md) 和 [ADR](docs/adr/)。
 
-## 路线图
+## 致谢与许可证
 
-- 补齐并独立复核正式 Retrieval Baseline 产物。
-- 完成 Memory 生命周期与索引恢复。
-- 增加流式响应和工具调用轨迹可视化。
-- 若进入远程或多人场景，再引入认证、隔离与更强的工具沙箱。
-
-## 致谢
-
-项目早期的最小 Agent Loop 思路受
-[shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 启发；
-本仓库随后围绕持久 Conversation、作用域 Memory、检索评测、Web/CLI 与工程检查独立演进，
-不是该项目的教程 fork。
-
-## 许可证
+早期最小 Agent Loop 思路受 [shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 启发。
+项目随后围绕会话持久化、作用域 Memory、检索评测与 Web/CLI 集成演进。
 
 [MIT License](LICENSE) © 2026 JohnnyYwQ

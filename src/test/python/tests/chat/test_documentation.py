@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 from unittest import TestCase
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[5]
 PUBLIC_DOCUMENTATION = (
     Path("README.md"),
     Path("README.en.md"),
@@ -38,8 +38,8 @@ USAGE_GUIDE_INVARIANTS = (
     "MEMORY_QDRANT_LOCATION",
     "MEMORY_QDRANT_COLLECTION",
     "MEMORY_MAX_TOKENS",
-    "config/cli.py --list",
-    "config/cli.py --resume <conversation-uuid>",
+    "src/main/python/cli.py --list",
+    "src/main/python/cli.py --resume <conversation-uuid>",
     "/api/chat/",
     "X-CSRFToken",
     "cuda-eval",

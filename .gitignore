@@ -73,11 +73,9 @@ summary_and_plan.md
 cookies.txt
 
 # Learning notes
-docs/*
-!docs/adr/
-!docs/adr/**
-!docs/assets/
-!docs/assets/**
+.docs/
+.scratch/
+
 
 
 # Temporary runtime file
@@ -85,8 +83,16 @@ docs/*
 .transcription/
 
 core_agent_copy.py
-
+PROJECT_UNDERSTANDING.md
 
 # test cache
 .mypy_cache/
 .ruff_cache/
+
+# image
+CLI页面.png
+web页面.png
+
+# agent
+AGENT.md
+CONTEXT.md

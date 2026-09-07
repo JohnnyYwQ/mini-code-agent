@@ -38,7 +38,7 @@ find_uv() {
 
 choose_dataset_path() {
     local repository_dataset
-    repository_dataset="${REPO_ROOT}/config/evals/memory_retrieval/data/longmemeval_s_cleaned.json"
+    repository_dataset="${REPO_ROOT}/src/main/python/evals/memory_retrieval/data/longmemeval_s_cleaned.json"
     if [[ -n "${MINI_CODE_AGENT_DATASET_PATH:-}" ]]; then
         printf '%s\n' "${MINI_CODE_AGENT_DATASET_PATH}"
     elif [[ -f "${repository_dataset}" ]]; then
@@ -188,7 +188,7 @@ else
 fi
 
 printf '\nVerifying the CUDA environment selection.\n'
-PYTHONPATH="${REPO_ROOT}/config" PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" - <<'PY'
+PYTHONPATH="${REPO_ROOT}/src/main/python" PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" - <<'PY'
 import importlib.metadata as metadata
 import json
 
@@ -226,7 +226,7 @@ PY
 
 printf '\nVerifying the pinned LongMemEval-S dataset.\n'
 "${PYTHON_BIN}" \
-    "${REPO_ROOT}/config/evals/memory_retrieval/download_longmemeval.py" \
+    "${REPO_ROOT}/src/main/python/evals/memory_retrieval/download_longmemeval.py" \
     --output "${DATASET_PATH}"
 actual_dataset_sha256="$(sha256sum "${DATASET_PATH}" | awk '{print $1}')"
 [[ "${actual_dataset_sha256}" == "${DATASET_SHA256}" ]] \
@@ -254,7 +254,7 @@ git -C "${REPO_ROOT}" status --porcelain=v1 --untracked-files=all \
 run_candidates() {
     local destination="$1"
     shift
-    PYTHONPATH="${REPO_ROOT}/config" PYTHONUNBUFFERED=1 "${PYTHON_BIN}" \
+    PYTHONPATH="${REPO_ROOT}/src/main/python" PYTHONUNBUFFERED=1 "${PYTHON_BIN}" \
         -m evals.memory_retrieval.run_longmemeval_cuda candidates \
         --dataset "${DATASET_PATH}" \
         --run-dir "${destination}" \
@@ -266,7 +266,7 @@ run_candidates() {
 
 run_rerank() {
     local destination="$1"
-    PYTHONPATH="${REPO_ROOT}/config" PYTHONUNBUFFERED=1 "${PYTHON_BIN}" \
+    PYTHONPATH="${REPO_ROOT}/src/main/python" PYTHONUNBUFFERED=1 "${PYTHON_BIN}" \
         -m evals.memory_retrieval.run_longmemeval_cuda rerank \
         --dataset "${DATASET_PATH}" \
         --run-dir "${destination}" \

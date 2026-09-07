@@ -36,15 +36,15 @@ Web 与 CLI 只是 adapter；它们不决定 Memory 所有权，也不直接运�
 
 ### Web 与 CLI 入口
 
-Web 由 [`config/chat/views.py`](../config/chat/views.py) 提供页面、Conversation 选择、新建操作和 `/api/chat/` JSON adapter。页面可以浏览本地 User 的所有 Conversation，并按 Memory Space 的工作区分组；工作区已不存在时仍可读取 Transcript，但新 Turn 返回冲突错误。
+Web 由 [`src/main/python/chat/views.py`](../src/main/python/chat/views.py) 提供页面、Conversation 选择、新建操作和 `/api/chat/` JSON adapter。页面可以浏览本地 User 的所有 Conversation，并按 Memory Space 的工作区分组；工作区已不存在时仍可读取 Transcript，但新 Turn 返回冲突错误。
 
-CLI 的当前入口是 [`config/cli.py`](../config/cli.py)，不是旧的 `config/core/agent.py`。它默认把启动时的当前目录解析为工作区并新建 Conversation；`--list` 与 `--resume` 只查看或恢复这个工作区所属 Memory Space 中的 Conversation。Web 和 CLI 共享同一个不可登录的持久化本地 User。
+CLI 的当前入口是 [`src/main/python/cli.py`](../src/main/python/cli.py)，不是旧的 `src/main/python/core/agent.py`。它默认把启动时的当前目录解析为工作区并新建 Conversation；`--list` 与 `--resume` 只查看或恢复这个工作区所属 Memory Space 中的 Conversation。Web 和 CLI 共享同一个不可登录的持久化本地 User。
 
-两个入口最终都调用相同的 Application 用例和 [`config/chat/composition.py`](../config/chat/composition.py) 装配逻辑。Web 不提供交互式危险命令确认，因此潜在破坏性命令会被拒绝；CLI 可以在终端确认。
+两个入口最终都调用相同的 Application 用例和 [`src/main/python/chat/composition.py`](../src/main/python/chat/composition.py) 装配逻辑。Web 不提供交互式危险命令确认，因此潜在破坏性命令会被拒绝；CLI 可以在终端确认。
 
 ### Application
 
-[`config/chat/application.py`](../config/chat/application.py) 是 Conversation 与 Turn 的可信编排边界。它负责：
+[`src/main/python/chat/application.py`](../src/main/python/chat/application.py) 是 Conversation 与 Turn 的可信编排边界。它负责：
 
 - 按本地 User 查找 Conversation，并验证所有权；
 - 从 Conversation 的 Memory Space 推导稳定 ID、规范化工作区路径和 Memory Context；
@@ -56,7 +56,7 @@ CLI 的当前入口是 [`config/cli.py`](../config/cli.py)，不是旧的 `confi
 
 ### Agent Runtime 与 Agent Loop
 
-[`config/core/agent_runtime.py`](../config/core/agent_runtime.py) 中的 Agent Runtime 是一个 Turn 的临时执行边界。它固定绑定一个工作区、一个 Memory Context、工具集合、Todo 状态、SkillManager 和 ContextCompactor。下一个 Turn 会从持久化 Conversation 重新解析上下文并创建新的 Runtime。
+[`src/main/python/core/agent_runtime.py`](../src/main/python/core/agent_runtime.py) 中的 Agent Runtime 是一个 Turn 的临时执行边界。它固定绑定一个工作区、一个 Memory Context、工具集合、Todo 状态、SkillManager 和 ContextCompactor。下一个 Turn 会从持久化 Conversation 重新解析上下文并创建新的 Runtime。
 
 Agent Loop 是 Runtime 内部的重复过程：准备模型上下文，调用 Anthropic Messages API，追加 assistant message；若响应的 `stop_reason` 是 `tool_use`，则执行获准工具，把 `tool_result` 作为 user-role protocol message 返回模型，然后继续。模型给出最终回复或达到 round limit 时循环结束。
 
@@ -66,13 +66,13 @@ Context compaction 只改变给后续模型调用的工作上下文，并可在�
 
 ### 工具执行
 
-[`config/core/tooling.py`](../config/core/tooling.py) 定义内置工具、工作区路径检查、权限 hook 与日志/输出 hook；`todo`、skills、compaction 和 `remember` 由 Agent Runtime 组合进去。文件工具必须留在 Runtime 的固定工作区，shell 也以该目录作为 `cwd`。
+[`src/main/python/core/tooling.py`](../src/main/python/core/tooling.py) 定义内置工具、工作区路径检查、权限 hook 与日志/输出 hook；`todo`、skills、compaction 和 `remember` 由 Agent Runtime 组合进去。文件工具必须留在 Runtime 的固定工作区，shell 也以该目录作为 `cwd`。
 
 权限检查不是安全沙箱。denylist 会拒绝少量明确命令，潜在破坏性命令依赖入口的确认策略；普通 `bash` 仍使用 `shell=True`。工具错误通常作为 `tool_result` 返回模型，让 Agent Loop 决定如何继续，而不是直接写入应用错误响应。
 
 ### Memory
 
-[`config/core/memory/`](../config/core/memory/) 接收 Application 已建立的 Memory Context，从不创建、切换或授权 User 和 Memory Space。每个 Turn 在第一次模型调用前，以最新用户 query 搜索当前 User Memory 与当前 Space Memory；候选由 E5 dense 与 BM25 融合，并可由 BGE 重排，最多五条 recalled Memory 作为临时 system context 注入。
+[`src/main/python/core/memory/`](../src/main/python/core/memory/) 接收 Application 已建立的 Memory Context，从不创建、切换或授权 User 和 Memory Space。每个 Turn 在第一次模型调用前，以最新用户 query 搜索当前 User Memory 与当前 Space Memory；候选由 E5 dense 与 BM25 融合，并可由 BGE 重排，最多五条 recalled Memory 作为临时 system context 注入。
 
 `remember` 是外层模型可调用的无参数工具。可信 handler 使用当前 Memory Context，并从最多五个最近完成 Turn 加当前 Turn 的可见 user/assistant 文本建立提取窗口；工具活动不进入窗口。提取模型只能把候选分类为 User Memory 或 Space Memory，不能指定所有者 ID。
 
@@ -80,7 +80,7 @@ Context compaction 只改变给后续模型调用的工作上下文，并可在�
 
 ### 持久化与外部 API
 
-[`config/chat/models.py`](../config/chat/models.py) 通过 Django 持久化 Memory Space、Conversation 和有序 ConversationMessage。Conversation 有稳定 UUID、标题、时间戳，并且只属于一个 Memory Space。ConversationMessage 的 JSON content 保留 text、`tool_use` 与 `tool_result` blocks；Web/CLI 展示层只投影其中可见文本。
+[`src/main/python/chat/models.py`](../src/main/python/chat/models.py) 通过 Django 持久化 Memory Space、Conversation 和有序 ConversationMessage。Conversation 有稳定 UUID、标题、时间戳，并且只属于一个 Memory Space。ConversationMessage 的 JSON content 保留 text、`tool_use` 与 `tool_result` blocks；Web/CLI 展示层只投影其中可见文本。
 
 Anthropic Messages API 是 Agent Loop 的外部推理边界，不是持久化层。每轮 API 响应先留在 Runtime 的生成列表中；只有整个运行返回最终可见 assistant reply 后，Application 才把该列表追加为 Conversation Transcript。Qdrant 是当前 Memory 的存储来源，与 Django Transcript 分开。
 
@@ -150,11 +150,14 @@ Runtime 只返回本 Turn 新生成的 assistant 和 tool-result protocol messag
 - recalled Memory 失败采用降级继续策略，因此一次成功 Turn 不保证 Memory 基础设施当时可用。
 - Memory UPDATE/DELETE、完整 Memory Event history、跨 Qdrant/Django 事务和自动索引恢复仍未实现。
 
+
+[ADR-0015](adr/0015-keep-agent-runtime-tracing-independent-and-fail-open.md) 定义了独立持久化 Agent Runtime Trace 的设计方向，当前代码尚未实现该轨迹存储。现有工具 hook 输出与 API 中固定为空的 `tool_trace` 不能视为完整运行轨迹。
+
 ## 实现与决策索引
 
-- 入口与编排：[`views.py`](../config/chat/views.py)、[`cli.py`](../config/cli.py)、[`application.py`](../config/chat/application.py)、[`composition.py`](../config/chat/composition.py)
-- 执行：[`agent_runtime.py`](../config/core/agent_runtime.py)、[`tooling.py`](../config/core/tooling.py)、[`compaction.py`](../config/core/compaction.py)
-- 状态：[`models.py`](../config/chat/models.py)、[`memory/`](../config/core/memory/)
+- 入口与编排：[`views.py`](../src/main/python/chat/views.py)、[`cli.py`](../src/main/python/cli.py)、[`application.py`](../src/main/python/chat/application.py)、[`composition.py`](../src/main/python/chat/composition.py)
+- 执行：[`agent_runtime.py`](../src/main/python/core/agent_runtime.py)、[`tooling.py`](../src/main/python/core/tooling.py)、[`compaction.py`](../src/main/python/core/compaction.py)
+- 状态：[`models.py`](../src/main/python/chat/models.py)、[`memory/`](../src/main/python/core/memory/)
 - Scope 与信任：[ADR-0002](adr/0002-user-and-space-memory-scopes.md)、[ADR-0003](adr/0003-share-one-local-user-across-entry-points.md)、[ADR-0004](adr/0004-locate-memory-spaces-by-workspace-path.md)
 - Conversation 与 Turn：[ADR-0005](adr/0005-persist-and-resume-conversations.md)、[ADR-0006](adr/0006-retrieve-memory-for-each-turn.md)、[ADR-0007](adr/0007-extract-memory-from-a-five-turn-window.md)、[ADR-0008](adr/0008-bind-agent-runtime-to-conversation-workspace.md)
 

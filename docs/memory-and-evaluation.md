@@ -42,6 +42,19 @@ Qdrant Point 当前是 Memory 的权威当前状态并保存 Source Text。User 
 
 产品链路的详细职责边界见[架构指南](architecture.md)，约束来源见 [ADR-0001](adr/0001-qdrant-as-current-memory-source.md)、[ADR-0002](adr/0002-user-and-space-memory-scopes.md)、[ADR-0006](adr/0006-retrieve-memory-for-each-turn.md) 与 [ADR-0007](adr/0007-extract-memory-from-a-five-turn-window.md)。
 
+### 产品召回与评测的区别
+
+两条链共用检索适配器，但候选组织和配置不同，不能把评测分数直接当作实际对话质量：
+
+| 维度 | Web/CLI 的产品 Memory | 正式 LongMemEval 检索评测 |
+| --- | --- | --- |
+| 语料 | 从会话提取的 Memory，按 User / Space Scope 过滤 | 每个问题独立的 user-only session corpus |
+| 候选 | 默认重排时每个 Scope 最多 10 条，合并去重后最多 20 条 | 对同一问题的 E5/BM25 排名进行 RRF，固定 top 50 |
+| 输出 | 最多 5 条 Memory 注入当轮 system context | 对固定候选池重排并报告 `@5` / `@10` 指标，不生成答案 |
+| BGE 运行配置 | 延迟加载；默认不要求 CUDA 或 FP16 | 固定 `cuda:0`、FP16、batch size 4、max length 512 |
+
+产品会对相同 Source Text 去重并优先保留 User Memory；评测保留每个 Haystack Session Occurrence 的候选身份，只在计分时映射回 Source Session ID。
+
 ## LongMemEval 检索协议
 
 ### 语料与可评分样本
@@ -145,14 +158,14 @@ LongMemEval Retrieval Baseline 是独立的批量 Retrieval Evaluation Run，不
 
 ```bash
 uv run --locked python \
-  config/evals/memory_retrieval/download_longmemeval.py
+  src/main/python/evals/memory_retrieval/download_longmemeval.py
 ```
 
 普通开发环境可以先跑 10 个可评分样本，验证 adapter 与检索入口。它不是正式 CUDA baseline：
 
 ```bash
-uv run --locked python config/evals/memory_retrieval/run.py \
-  --longmemeval config/evals/memory_retrieval/data/longmemeval_s_cleaned.json \
+uv run --locked python src/main/python/evals/memory_retrieval/run.py \
+  --longmemeval src/main/python/evals/memory_retrieval/data/longmemeval_s_cleaned.json \
   --max-cases 10 \
   --reranker none \
   --reranker bge

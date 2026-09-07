@@ -42,6 +42,19 @@ The extraction model processes the whole window once, may return zero or more pr
 
 See the [architecture guide](architecture.en.md) for the full responsibility flow. The governing decisions are [ADR-0001](adr/0001-qdrant-as-current-memory-source.md), [ADR-0002](adr/0002-user-and-space-memory-scopes.md), [ADR-0006](adr/0006-retrieve-memory-for-each-turn.md), and [ADR-0007](adr/0007-extract-memory-from-a-five-turn-window.md).
 
+### Product recall versus evaluation
+
+The two paths share retrieval adapters but differ in candidate organization and configuration. Evaluation scores therefore do not directly measure live Conversation quality:
+
+| Dimension | Product Memory in Web/CLI | Formal LongMemEval retrieval evaluation |
+| --- | --- | --- |
+| Corpus | Extracted Memories filtered by User / Space Scope | An independent user-only session corpus for each question |
+| Candidates | With default reranking, up to 10 per Scope and at most 20 after merging and deduplication | RRF over E5/BM25 rankings for one question, with a fixed top 50 |
+| Output | Up to five Memories injected into the Turn's system context | Reranking of a fixed pool, scored at `@5` / `@10` without answer generation |
+| BGE execution | Lazy loading; CUDA and FP16 are not required by default | Fixed `cuda:0`, FP16, batch size 4, max length 512 |
+
+Product recall deduplicates identical Source Text and prefers User Memory. Evaluation retains each Haystack Session Occurrence as a candidate and maps to Source Session ID only at scoring time.
+
 ## LongMemEval retrieval protocol
 
 ### Corpus and scored cases
@@ -145,14 +158,14 @@ The downloader pins the dataset revision, byte size, and SHA-256. It also checks
 
 ```bash
 uv run --locked python \
-  config/evals/memory_retrieval/download_longmemeval.py
+  src/main/python/evals/memory_retrieval/download_longmemeval.py
 ```
 
 An ordinary development environment can run 10 scored cases to exercise the adapter and retrieval entry point. This is not the formal CUDA baseline:
 
 ```bash
-uv run --locked python config/evals/memory_retrieval/run.py \
-  --longmemeval config/evals/memory_retrieval/data/longmemeval_s_cleaned.json \
+uv run --locked python src/main/python/evals/memory_retrieval/run.py \
+  --longmemeval src/main/python/evals/memory_retrieval/data/longmemeval_s_cleaned.json \
   --max-cases 10 \
   --reranker none \
   --reranker bge
