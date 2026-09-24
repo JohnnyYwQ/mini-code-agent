@@ -33,6 +33,7 @@ Edit `.env` with a real model and credentials. Never commit `.env`, or put crede
 ```env
 MODEL_ID=your_model_id
 ANTHROPIC_API_KEY=your_api_key
+MEMORY_ENABLED=false
 # ANTHROPIC_BASE_URL=
 # MEMORY_QDRANT_LOCATION=~/.mini-code-agent/qdrant
 # MEMORY_QDRANT_COLLECTION=mini_code_agent_memories
@@ -44,6 +45,7 @@ ANTHROPIC_API_KEY=your_api_key
 | `MODEL_ID` | Required; the model ID passed to the Anthropic Messages API. |
 | `ANTHROPIC_API_KEY` | Credential required for ordinary Anthropic API calls. |
 | `ANTHROPIC_BASE_URL` | Optional Anthropic-compatible API base URL. |
+| `MEMORY_ENABLED` | `.env.example` sets `false` to skip Memory initialization, recall, and the `remember` tool; chat, workspace tools, and Conversation Transcript still work. Set `true` to enable Memory. If unset, the existing enabled behavior is preserved. |
 | `MEMORY_QDRANT_LOCATION` | Optional local path or complete `http(s)://` Qdrant service URL; defaults to `~/.mini-code-agent/qdrant`. |
 | `MEMORY_QDRANT_COLLECTION` | Optional collection name; defaults to `mini_code_agent_memories`. |
 | `MEMORY_MAX_TOKENS` | Optional Memory-extraction output limit; defaults to `1200`. |
@@ -119,6 +121,8 @@ Do not disable CSRF for scripting and do not commit local cookies or credentials
 ## Memory and Qdrant
 
 ### Model loading and caches
+
+Quick Start disables Memory in `.env`. To enable cross-conversation Memory, set `MEMORY_ENABLED=true` and restart the application. If the first message keeps waiting, set it to `false` to verify the chat model connection before preparing Memory model caches.
 
 Memory combines E5 dense, BM25 keyword, and BGE Reranking. Initial Memory construction loads E5 and BM25, downloading them if their caches are missing. `BAAI/bge-reranker-v2-m3` is lazily loaded by `BGEReranker`: its model downloads on the first Memory recall that has candidates to rerank, or during BGE evaluation. Reserve several GB of disk before the first Memory-enabled run; later runs reuse the local cache.
 
@@ -210,6 +214,8 @@ This checks real E5 embeddings, Qdrant retrieval, and User Scope. It does not ca
 ## Troubleshooting and current limits
 
 ### Check before startup
+
+The first message may wait for Memory model downloads before any chat API request starts; fallback only happens after initialization raises an exception. Existing `.env` files do not receive new settings automatically: add `MEMORY_ENABLED=false` and restart Web or CLI to skip this stage. Model API failures distinguish HTTP status codes, connection errors, and timeouts; for example, HTTP 401 points to `ANTHROPIC_API_KEY`, while HTTP 404 points to `MODEL_ID` and `ANTHROPIC_BASE_URL`.
 
 If the CLI or Web app cannot call the model, first check `MODEL_ID` and `ANTHROPIC_API_KEY` in `.env`, then confirm that optional `ANTHROPIC_BASE_URL` is a complete address for the intended service. Use `--help` to check the current CLI entry point instead of reusing an old path:
 

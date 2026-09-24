@@ -33,6 +33,7 @@ cp .env.example .env
 ```env
 MODEL_ID=your_model_id
 ANTHROPIC_API_KEY=your_api_key
+MEMORY_ENABLED=false
 # ANTHROPIC_BASE_URL=
 # MEMORY_QDRANT_LOCATION=~/.mini-code-agent/qdrant
 # MEMORY_QDRANT_COLLECTION=mini_code_agent_memories
@@ -44,6 +45,7 @@ ANTHROPIC_API_KEY=your_api_key
 | `MODEL_ID` | 必填；传给 Anthropic Messages API 的模型 ID。 |
 | `ANTHROPIC_API_KEY` | 正常 Anthropic API 调用所需的凭据。 |
 | `ANTHROPIC_BASE_URL` | 可选的 Anthropic-compatible API 基础地址。 |
+| `MEMORY_ENABLED` | `.env.example` 设为 `false`，跳过 Memory 初始化、召回与 `remember` 工具；不影响聊天、工作区工具或 Conversation Transcript。设为 `true` 开启 Memory；未设置时保持原有的开启行为。 |
 | `MEMORY_QDRANT_LOCATION` | 可选的本地路径或完整 `http(s)://` Qdrant 服务 URL；默认 `~/.mini-code-agent/qdrant`。 |
 | `MEMORY_QDRANT_COLLECTION` | 可选 collection 名；默认 `mini_code_agent_memories`。 |
 | `MEMORY_MAX_TOKENS` | 可选的 Memory 提取输出上限；默认 `1200`。 |
@@ -119,6 +121,8 @@ curl -X POST http://127.0.0.1:8000/api/chat/ \
 ## Memory 与 Qdrant
 
 ### 模型加载与缓存
+
+Quick Start 默认在 `.env` 中关闭 Memory。要开启跨会话 Memory，将 `MEMORY_ENABLED` 改为 `true` 并重启应用。若首条消息一直等待，可先设为 `false` 验证聊天模型连接，再准备 Memory 模型缓存。
 
 Memory 使用 E5 dense、BM25 keyword 和 BGE Reranking。首次创建 Memory 时会加载 E5 与 BM25，缺少缓存时需要下载。`BAAI/bge-reranker-v2-m3` 由 `BGEReranker` 延迟加载：第一次存在候选的 Memory recall，或运行 BGE 评测时会下载模型。请在首次 Memory-enabled run 前预留数 GB 磁盘空间；之后会复用本地缓存。
 
@@ -210,6 +214,8 @@ RUN_E5_SMOKE=1 uv run --locked python src/main/python/manage.py test \
 ## 故障排查与当前限制
 
 ### 启动前检查
+
+首条消息的等待可能发生在 Memory 模型下载阶段，早于聊天 API 请求；只有初始化已经抛出异常，程序才会降级继续。旧 `.env` 不会自动获得新配置，可添加 `MEMORY_ENABLED=false` 并重启 Web 或 CLI，跳过这一阶段。模型接口失败时，错误提示会区分 HTTP 状态码、连接失败与超时；例如 HTTP 401 检查 `ANTHROPIC_API_KEY`，HTTP 404 检查 `MODEL_ID` 与 `ANTHROPIC_BASE_URL`。
 
 若 CLI 或 Web 无法调用模型，先确认 `.env` 中的 `MODEL_ID` 与 `ANTHROPIC_API_KEY`，再检查可选 `ANTHROPIC_BASE_URL` 是否为目标服务的完整地址。使用 `--help` 检查 CLI 入口，而不是复用旧路径：
 

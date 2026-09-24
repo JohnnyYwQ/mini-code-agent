@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urlparse
 
+from anthropic import APIConnectionError, APIStatusError, APITimeoutError
 from anthropic.types import ToolParam
 
 from core.compaction import ContextCompactor
@@ -39,6 +40,36 @@ MAX_ROUNDS = 500
 def valid_http_url(url: str) -> bool:
     parsed = urlparse(url)
     return parsed.scheme in ("http", "https") and bool(parsed.netloc)
+
+
+def _api_failure_message(error: Exception) -> str:
+    """Explain SDK failures without exposing response bodies or credentials."""
+    if isinstance(error, APITimeoutError):
+        return "Anthropic API request timed out. Check the network or retry later."
+    if isinstance(error, APIConnectionError):
+        return (
+            "Cannot connect to Anthropic API. "
+            "Check ANTHROPIC_BASE_URL, network, and proxy settings."
+        )
+    if isinstance(error, APIStatusError):
+        hints = {
+            401: "Check ANTHROPIC_API_KEY.",
+            403: "Check API key permissions and model access.",
+            404: "Check MODEL_ID and ANTHROPIC_BASE_URL.",
+            429: "API rate limit or quota reached; check quota or retry later.",
+        }
+        hint = hints.get(error.status_code)
+        if hint is None:
+            hint = (
+                "The model service failed; retry later."
+                if error.status_code >= 500
+                else "Check request parameters, MODEL_ID, and endpoint compatibility."
+            )
+        return f"Anthropic API request failed (HTTP {error.status_code}). {hint}"
+    return (
+        "Anthropic API request failed. Check model configuration, "
+        "network, and model access."
+    )
 
 
 class AgentMemory(Protocol):
@@ -341,10 +372,7 @@ class AgentRuntime:
                     max_tokens=self.config.max_tokens,
                 )
             except Exception as exc:
-                raise RuntimeError(
-                    "Anthropic API request failed. Check model configuration, "
-                    "network, and model access."
-                ) from exc
+                raise RuntimeError(_api_failure_message(exc)) from exc
 
             assistant_message = {
                 "role": "assistant",

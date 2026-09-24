@@ -91,6 +91,19 @@ class ChatApiJsonFallbackTests(TestCase):
         self.assertEqual(data["tool_trace"], [])
         self.assertEqual(data["conversation_id"], str(self.conversation.id))
 
+    def test_exception_without_message_still_returns_json_error(self):
+        with patch("chat.views.build_web_runner", side_effect=TimeoutError()):
+            response = self.post_json({"message": "hello"})
+
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(
+            response.json(), {"ok": False, "error": "Agent failed: TimeoutError"}
+        )
+        self.assertEqual(
+            load_conversation_messages(conversation_id=self.conversation.id),
+            [{"role": "user", "content": "hello"}],
+        )
+
     def test_missing_conversation_id_returns_json_400(self):
         response = self.client.post(
             "/api/chat/",

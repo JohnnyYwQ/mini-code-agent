@@ -84,14 +84,18 @@ def _build_runner(
     allow_interactive_confirmation: bool,
 ) -> AgentRuntime:
     config = _agent_config()
-    try:
-        memory = _production_memory()
-    except Exception:
-        logger.warning(
-            "Memory initialization failed; continuing without Memory",
-            exc_info=True,
-        )
-        memory = None
+    memory = None
+    memory_enabled = os.getenv("MEMORY_ENABLED", "true").strip().lower()
+    if memory_enabled not in {"true", "1", "yes", "on", "false", "0", "no", "off"}:
+        raise ValueError("MEMORY_ENABLED must be true or false")
+    if memory_enabled in {"true", "1", "yes", "on"}:
+        try:
+            memory = _production_memory()
+        except Exception:
+            logger.warning(
+                "Memory initialization failed; continuing without Memory",
+                exc_info=True,
+            )
 
     return AgentRuntime(
         workspace_path=context.workspace_path,

@@ -23,7 +23,8 @@ DEFAULT_WEB_WORKSPACE = Path.cwd().resolve()
 
 
 def brief_error(exc: Exception) -> str:
-    message = str(exc).splitlines()[0].strip()
+    lines = str(exc).splitlines()
+    message = lines[0].strip() if lines else ""
     return message[:300] or exc.__class__.__name__
 
 
