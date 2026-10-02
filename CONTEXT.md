@@ -32,6 +32,10 @@ _Avoid_: Pending event, operation status
 A sequence of related user and agent turns sharing one stable Conversation ID. Each Conversation belongs to exactly one Memory Space.
 _Avoid_: Run
 
+**Conversation Execution State**:
+The per-Conversation admission status for request execution: IDLE when no execution is reserved, RUNNING while one request owns execution, and PAUSED while later requests must wait for explicit resolution. It is distinct from the outcome of any one Agent Runtime.
+_Avoid_: Runtime Outcome, Agent Runtime Trace, database transaction state
+
 **Turn**:
 A completed exchange within a Conversation, beginning with one user message and ending with the agent's final visible reply. Its transcript may include intermediate tool activity.
 _Avoid_: Conversation, message

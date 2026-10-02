@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
@@ -10,9 +11,16 @@ from django.contrib.auth import get_user_model  # type: ignore[import-untyped]
 from django.db import transaction  # type: ignore[import-untyped]
 from django.utils import timezone  # type: ignore[import-untyped]
 
-from chat.models import Conversation, ConversationMessage, MemorySpace
+from chat.models import (
+    Conversation,
+    ConversationExecution,
+    ConversationMessage,
+    MemorySpace,
+)
 
 LOCAL_USERNAME = "local"
+
+logger = logging.getLogger(__name__)
 
 
 class ConversationNotFoundError(LookupError):
@@ -74,18 +82,64 @@ def _get_local_conversation(*, conversation_id: UUID) -> Conversation:
 
 
 def start_conversation(*, workspace_path: Path) -> Conversation:
-    local_user, created = get_user_model().objects.get_or_create(
-        username=LOCAL_USERNAME
-    )
-    if created or local_user.has_usable_password():
-        local_user.set_unusable_password()
-        local_user.save(update_fields=["password"])
+    with transaction.atomic():
+        local_user, created = get_user_model().objects.get_or_create(
+            username=LOCAL_USERNAME
+        )
 
-    memory_space, _ = MemorySpace.objects.get_or_create(
-        owner=local_user,
-        workspace_path=str(workspace_path.resolve()),
-    )
-    return Conversation.objects.create(memory_space=memory_space)
+        if created or local_user.has_usable_password():
+            local_user.set_unusable_password()
+            local_user.save(update_fields=["password"])
+
+        memory_space, _ = MemorySpace.objects.get_or_create(
+            owner=local_user,
+            workspace_path=str(workspace_path.resolve()),
+        )
+
+        conversation = Conversation.objects.create(
+            memory_space=memory_space,
+        )
+        ConversationExecution.objects.create(
+            conversation=conversation,
+        )
+
+    return conversation
+
+
+def try_claim_conversation(*, conversation_id: UUID) -> bool:
+    updated = ConversationExecution.objects.filter(
+        conversation_id=conversation_id, status="idle"
+    ).update(status=ConversationExecution.Status.RUNNING)
+
+    return updated == 1
+
+
+def complete_conversation_execution(
+    *,
+    conversation_id: UUID,
+    generated_messages: list[dict[str, object]],
+) -> None:
+    with transaction.atomic():
+        append_conversation_messages(
+            conversation_id=conversation_id,
+            messages=generated_messages,
+        )
+
+        updated = ConversationExecution.objects.filter(
+            conversation_id=conversation_id,
+            status="running",
+        ).update(status=ConversationExecution.Status.IDLE)
+
+        if updated != 1:
+            raise RuntimeError
+
+
+def pause_conversation_execution(*, conversation_id: UUID) -> bool:
+    updated = ConversationExecution.objects.filter(
+        conversation_id=conversation_id,
+        status="running",
+    ).update(status=ConversationExecution.Status.PAUSED)
+    return updated == 1
 
 
 def resolve_memory_context(*, conversation_id: UUID) -> MemoryContext:
@@ -261,27 +315,41 @@ def run_conversation_turn(
         raise ValueError("query must not be empty")
 
     runtime_context = prepare_conversation_runtime(conversation_id=conversation_id)
-    append_conversation_message(
-        conversation_id=conversation_id,
-        message={"role": "user", "content": normalized_query},
-    )
-    messages = load_conversation_messages(conversation_id=conversation_id)
-    runner = runner_factory(runtime_context)
-    generated_messages = runner.run(
-        messages=messages,
-        latest_user_query=normalized_query,
-    )
-    assistant_text = _visible_assistant_text(generated_messages)
-    if not assistant_text:
-        raise AgentResponseError("Agent returned no assistant text")
 
-    append_conversation_messages(
-        conversation_id=conversation_id,
-        messages=generated_messages,
-    )
-    conversation = _get_local_conversation(conversation_id=conversation_id)
-    return TurnResult(
-        conversation_id=conversation.id,
-        title=conversation.title or "New conversation",
-        assistant_text=assistant_text,
-    )
+    if not try_claim_conversation(conversation_id=conversation_id):
+        raise RuntimeError
+
+    try:
+        append_conversation_message(
+            conversation_id=conversation_id,
+            message={"role": "user", "content": normalized_query},
+        )
+        messages = load_conversation_messages(conversation_id=conversation_id)
+        runner = runner_factory(runtime_context)
+        generated_messages = runner.run(
+            messages=messages,
+            latest_user_query=normalized_query,
+        )
+        assistant_text = _visible_assistant_text(generated_messages)
+        if not assistant_text:
+            raise AgentResponseError("Agent returned no assistant text")
+
+        conversation = _get_local_conversation(conversation_id=conversation_id)
+        result = TurnResult(
+            conversation_id=conversation.id,
+            title=conversation.title or "New conversation",
+            assistant_text=assistant_text,
+        )
+        complete_conversation_execution(
+            conversation_id=conversation_id,
+            generated_messages=generated_messages,
+        )
+    except Exception:
+        try:
+            paused = pause_conversation_execution(conversation_id=conversation_id)
+            if not paused:
+                logger.warning("暂停未生效, conversation_id=%s", conversation_id)
+        except Exception:
+            logger.exception("保存暂停状态失败, conversation_id=%s", conversation_id)
+        raise
+    return result

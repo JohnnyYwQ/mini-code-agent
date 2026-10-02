@@ -2,6 +2,7 @@ import uuid
 
 from django.conf import settings  # type: ignore[import-untyped]
 from django.db import models  # type: ignore[import-untyped]
+from django.db.models import Q
 
 
 class MemorySpace(models.Model):
@@ -45,3 +46,34 @@ class ConversationMessage(models.Model):
 
     class Meta:
         ordering = ("id",)
+
+
+class ConversationExecution(models.Model):
+    class Status(models.TextChoices):
+        IDLE = "idle", "Idle"
+        RUNNING = "running", "Running"
+        PAUSED = "paused", "Paused"
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.IDLE,
+    )
+
+    conversation = models.OneToOneField(
+        Conversation, on_delete=models.CASCADE, related_name="execution"
+    )
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(
+                    status__in=[
+                        "idle",
+                        "running",
+                        "paused",
+                    ]
+                ),
+                name="conversation_execution_valid_status",
+            )
+        ]
