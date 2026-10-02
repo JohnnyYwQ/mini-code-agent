@@ -9,6 +9,7 @@ from django.urls import reverse
 
 from chat.application import (
     AgentResponseError,
+    ConversationExecutionUnavailableError,
     ConversationNotFoundError,
     WorkspaceUnavailableError,
     list_conversations,
@@ -189,6 +190,15 @@ def chat_api(request):
         return JsonResponse(
             {"ok": False, "error": brief_error(exc)},
             status=502,
+        )
+    except ConversationExecutionUnavailableError as exc:
+        return JsonResponse(
+            {
+                "ok": False,
+                "code": "conversation_unavailable",
+                "error": brief_error(exc),
+            },
+            status=409,
         )
     except Exception as exc:
         return JsonResponse(

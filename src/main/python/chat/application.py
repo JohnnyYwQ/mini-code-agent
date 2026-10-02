@@ -31,6 +31,10 @@ class WorkspaceUnavailableError(RuntimeError):
     """Raised when a Conversation's workspace cannot run a Turn."""
 
 
+class ConversationExecutionUnavailableError(RuntimeError):
+    """当前会话无法接收新请求"""
+
+
 @dataclass(frozen=True, slots=True)
 class ConversationSummary:
     id: UUID
@@ -131,7 +135,7 @@ def complete_conversation_execution(
         ).update(status=ConversationExecution.Status.IDLE)
 
         if updated != 1:
-            raise RuntimeError
+            raise RuntimeError("完成请求失败：会话状态不是running")
 
 
 def pause_conversation_execution(*, conversation_id: UUID) -> bool:
@@ -317,7 +321,7 @@ def run_conversation_turn(
     runtime_context = prepare_conversation_runtime(conversation_id=conversation_id)
 
     if not try_claim_conversation(conversation_id=conversation_id):
-        raise RuntimeError
+        raise ConversationExecutionUnavailableError("当前会话无法接收新请求")
 
     try:
         append_conversation_message(
