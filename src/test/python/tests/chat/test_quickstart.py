@@ -35,6 +35,9 @@ class QuickStartTests(TestCase):
         self.client = Client(enforce_csrf_checks=True)
         self.assertEqual(self.client.get("/").status_code, 200)
         self.csrf = self.client.cookies["csrftoken"].value
+        self.create_conversation()
+
+    def create_conversation(self):
         with patch("chat.views.DEFAULT_WEB_WORKSPACE", self.path):
             response = self.client.post(
                 "/conversations/new/", HTTP_X_CSRFTOKEN=self.csrf
@@ -173,6 +176,8 @@ class QuickStartTests(TestCase):
             (500, "service"),
         ):
             with self.subTest(status=status):
+                # Failed requests pause their conversation; isolate each scenario.
+                self.create_conversation()
 
                 def respond(request):
                     return httpx.Response(
@@ -193,6 +198,8 @@ class QuickStartTests(TestCase):
             (httpx.ReadTimeout, "timed out"),
         ):
             with self.subTest(failure=failure):
+                # Failed requests pause their conversation; isolate each scenario.
+                self.create_conversation()
 
                 def respond(request):
                     raise failure("private transport details", request=request)
