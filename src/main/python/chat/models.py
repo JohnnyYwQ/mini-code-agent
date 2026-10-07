@@ -12,14 +12,15 @@ class MemorySpace(models.Model):
         on_delete=models.CASCADE,
         related_name="memory_spaces",
     )
+    path_hash = models.CharField(max_length=64)
     workspace_path = models.TextField()
 
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=("owner", "workspace_path"),
-                name="unique_owner_workspace_memory_space",
-            )
+                fields=("owner", "path_hash"),
+                name="unique_owner_workspace_hash",
+            ),
         ]
 
 

@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -33,6 +34,10 @@ class WorkspaceUnavailableError(RuntimeError):
 
 class ConversationExecutionUnavailableError(RuntimeError):
     """当前会话无法接收新请求"""
+
+
+class WorkspacePathHashCollisionError(RuntimeError):
+    """同pathHash工作路径发生冲突"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,17 +93,26 @@ def _get_local_conversation(*, conversation_id: UUID) -> Conversation:
 def start_conversation(*, workspace_path: Path) -> Conversation:
     with transaction.atomic():
         local_user, created = get_user_model().objects.get_or_create(
-            username=LOCAL_USERNAME
+            username=LOCAL_USERNAME,
         )
 
         if created or local_user.has_usable_password():
             local_user.set_unusable_password()
             local_user.save(update_fields=["password"])
 
+        normalized_path = str(workspace_path.resolve())
+        path_hash = hashlib.sha256(normalized_path.encode("utf-8")).hexdigest()
+
         memory_space, _ = MemorySpace.objects.get_or_create(
             owner=local_user,
-            workspace_path=str(workspace_path.resolve()),
+            path_hash=path_hash,
+            defaults={"workspace_path": normalized_path},
         )
+
+        if memory_space.workspace_path != normalized_path:
+            raise WorkspacePathHashCollisionError(
+                f"Work space path hash collision.{normalized_path}"
+            )
 
         conversation = Conversation.objects.create(
             memory_space=memory_space,

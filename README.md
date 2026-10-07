@@ -58,6 +58,8 @@ uv run --locked python src/main/python/manage.py runserver
 
 ## 在终端使用
 
+默认数据库为 SQLite；需要 MySQL 时，参照 [本地 MySQL 开发](docs/mysql-development.md) 安装可选驱动、启动独立数据库并执行迁移。
+
 完成上面的安装、配置和数据库初始化后，也可以直接启动 CLI：
 
 ```bash
